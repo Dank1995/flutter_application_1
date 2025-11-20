@@ -1,16 +1,3 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-
-void main() => runApp(const CadenceCoachApp());
-
-class CadenceCoachApp extends StatelessWidget {
-  const CadenceCoachApp({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(title: 'Cadence Coach', theme: ThemeData.dark(), home: const WorkoutScreen());
-  }
-}
-
 class WorkoutScreen extends StatefulWidget {
   const WorkoutScreen({super.key});
   @override
@@ -18,11 +5,10 @@ class WorkoutScreen extends StatefulWidget {
 }
 
 class _WorkoutScreenState extends State<WorkoutScreen> {
-  // Live metrics
-  int cadenceSpm = 0; // Stryd Pod 2
-  int hrBpm = 0;      // Garmin HRM-Dual
-  int paceSecPerKm = 300; // TODO: add GPS plugin later (5:00 min/km placeholder)
-  int powerW = 0;     // Stryd power
+  int cadenceSpm = 0;
+  int hrBpm = 0;
+  int paceSecPerKm = 300;
+  int powerW = 0;
   String prompt = "";
   bool premiumEnabled = true;
 
@@ -37,9 +23,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     FlutterBluePlus.scanResults.listen((results) async {
       for (final r in results) {
         final name = (r.device.name).toLowerCase();
-        // Connect to Garmin HRM-Dual
+
+        // Garmin HRM-Dual
         if (name.contains("garmin")) {
-          await r.device.connect();
+          await r.device.connect(license: "pub.dev.flutter_blue_plus.license");
           final services = await r.device.discoverServices();
           for (final s in services) {
             if (s.uuid.toString().toLowerCase() == "0000180d-0000-1000-8000-00805f9b34fb") {
@@ -64,30 +51,26 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             }
           }
         }
-        // Connect to Stryd Pod 2 (UUIDs must be discovered with nRF Connect)
+
+        // Stryd Pod 2
         if (name.contains("stryd")) {
-          await r.device.connect();
+          await r.device.connect(license: "pub.dev.flutter_blue_plus.license");
           final services = await r.device.discoverServices();
           for (final s in services) {
-            // Replace "fc00"/"fc01"/"fc02" with actual UUIDs from your Stryd Pod 2
             if (s.uuid.toString().toLowerCase().contains("fc00")) {
               for (final c in s.characteristics) {
                 final cid = c.uuid.toString().toLowerCase();
-                // Running Power characteristic
                 if (cid.contains("fc01")) {
                   await c.setNotifyValue(true);
                   c.onValueReceived.listen((data) {
-                    // TODO: parse per Stryd spec; placeholder assumes first byte is watts
                     final w = data.isNotEmpty ? data[0] : 0;
                     setState(() => powerW = w);
                     _updatePrompt();
                   });
                 }
-                // Cadence characteristic
                 if (cid.contains("fc02")) {
                   await c.setNotifyValue(true);
                   c.onValueReceived.listen((data) {
-                    // TODO: parse per Stryd spec; placeholder assumes first byte is spm
                     final spm = data.isNotEmpty ? data[0] : 0;
                     setState(() => cadenceSpm = spm);
                     _updatePrompt();
@@ -102,16 +85,13 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _updatePrompt() {
-    // Efficiency (premium)
-    // Running: min/km per BPM; Cycling: W/BPM
     final paceMinPerKm = paceSecPerKm / 60.0;
     final runEfficiency = hrBpm > 0 ? (paceMinPerKm / hrBpm) : 0.0;
     final rideEfficiency = hrBpm > 0 ? (powerW / hrBpm) : 0.0;
 
-    // Cadence coaching (default targets)
     final optimalRun = 176;
     final optimalRide = 90;
-    final optimal = powerW > 0 ? optimalRide : optimalRun; // if power present, assume ride; else run
+    final optimal = powerW > 0 ? optimalRide : optimalRun;
     final diff = optimal - cadenceSpm;
 
     if (diff.abs() >= 5) {
@@ -121,9 +101,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     } else {
       prompt = "Cadence optimal ($optimal)";
     }
-
-    // Update UI labels via setState already done in callers
-    // You could also store efficiency values if needed
   }
 
   String _formatPace(int secPerKm) {
@@ -145,7 +122,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Metrics
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -155,7 +131,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            // Premium efficiency
             if (premiumEnabled)
               Text(
                 powerW > 0
@@ -164,7 +139,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 style: const TextStyle(fontSize: 22, color: Colors.green),
               ),
             const SizedBox(height: 16),
-            // Prompt
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -174,7 +148,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
               child: Text(prompt, style: const TextStyle(fontSize: 20)),
             ),
             const SizedBox(height: 16),
-            // Scan button (re-scan)
             ElevatedButton(
               onPressed: () async {
                 await FlutterBluePlus.stopScan();
@@ -196,10 +169,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600)),
-            if (unit.isNotEmpty) Padding(
-              padding: const EdgeInsets.only(left: 4.0),
-              child: Text(unit, style: const TextStyle(color: Colors.grey)),
-            ),
+            if (unit.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 4.0),
+                child: Text(unit, style: const TextStyle(color: Colors.grey)),
+              ),
           ],
         ),
       ],
