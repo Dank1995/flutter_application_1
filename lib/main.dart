@@ -1,106 +1,264 @@
-class WorkoutScreen extends StatefulWidget {
-  const WorkoutScreen({super.key});
-  @override
-  State<WorkoutScreen> createState() => _WorkoutScreenState();
+import 'dart:async';
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:location/location.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
+enum WorkoutType { run, cycle }
+
+class CadenceOptimizerAI {
+  int currentCadence = 0;
+  int currentPower = 0;
+  int currentHr = 0;
+  double currentEfficiency = 0.0;
+  WorkoutType mode = WorkoutType.run;
+
+  void updateSensors({
+    required int cadence,
+    required int power,
+    required int hr,
+    required int paceSecPerKm,
+  }) {
+    currentCadence = cadence;
+    currentPower = power;
+    currentHr = hr;
+    currentEfficiency = calculateEfficiency(paceSecPerKm);
+  }
+
+  double calculateEfficiency(int paceSecPerKm) {
+    if (currentHr == 0) return 0;
+    if (mode == WorkoutType.run) {
+      final paceMinPerKm = paceSecPerKm / 60.0;
+      return paceMinPerKm / currentHr; // min/km per BPM
+    } else {
+      return currentPower / currentHr; // W/BPM
+    }
+  }
+
+  String shiftPrompt() {
+    final optimal = mode == WorkoutType.cycle ? 90 : 176;
+    final diff = optimal - currentCadence;
+    if (diff.abs() >= 5) {
+      return diff > 0
+          ? "Increase cadence (+$diff) → target $optimal"
+          : "Reduce cadence (−${diff.abs()}) → target $optimal";
+    }
+    return "Cadence optimal ($optimal)";
+  }
 }
 
-class _WorkoutScreenState extends State<WorkoutScreen> {
-  int cadenceSpm = 0;
-  int hrBpm = 0;
+class Workout {
+  final DateTime date;
+  final WorkoutType type;
+  final double distanceKm;
+  final Duration duration;
+  final int avgHr;
+  final int avgCadence;
+  final double avgPaceMinPerKm;
+  final double avgPower;
+  final double efficiencyScore;
+
+  Workout({
+    required this.date,
+    required this.type,
+    required this.distanceKm,
+    required this.duration,
+    required this.avgHr,
+    required this.avgCadence,
+    required this.avgPaceMinPerKm,
+    required this.avgPower,
+    required this.efficiencyScore,
+  });
+}
+
+class WorkoutRepository {
+  final List<Workout> _history = [];
+  void addWorkout(Workout w) => _history.add(w);
+  List<Workout> get history => List.unmodifiable(_history);
+}
+
+void main() {
+  runApp(const CadenceCoachApp());
+}
+
+class CadenceCoachApp extends StatelessWidget {
+  const CadenceCoachApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Cadence Coach',
+      theme: ThemeData.dark(),
+      home: const AppShell(),
+    );
+  }
+}
+
+class AppShell extends StatefulWidget {
+  const AppShell({super.key});
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  int _tabIndex = 0;
+  final repo = WorkoutRepository();
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      WorkoutPager(onWorkoutSaved: (w) {
+        setState(() => repo.addWorkout(w));
+      }),
+      HistoryScreen(workouts: repo.history),
+      const SettingsScreen(),
+    ];
+    return Scaffold(
+      body: pages[_tabIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _tabIndex,
+        onTap: (i) => setState(() => _tabIndex = i),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.directions_run), label: "Workout"),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: "Settings"),
+        ],
+      ),
+    );
+  }
+}
+
+class WorkoutPager extends StatefulWidget {
+  final void Function(Workout) onWorkoutSaved;
+  const WorkoutPager({super.key, required this.onWorkoutSaved});
+  @override
+  State<WorkoutPager> createState() => _WorkoutPagerState();
+}
+
+class _WorkoutPagerState extends State<WorkoutPager> {
+  final optimizer = CadenceOptimizerAI();
+  WorkoutType mode = WorkoutType.run;
+
+  int cadence = 0;
+  int hr = 0;
+  int power = 0;
   int paceSecPerKm = 300;
-  int powerW = 0;
-  String prompt = "";
-  bool premiumEnabled = true;
+  String prompt = "Waiting for sensors...";
+  double efficiency = 0.0;
+
+  final Location _location = Location();
+  StreamSubscription<LocationData>? _locSub;
+  final List<LatLng> _routePoints = [];
+  LatLng? _currentPos;
+  bool recording = false;
+  DateTime? startTime;
+  double distanceMeters = 0.0;
+  final Distance _haversine = const Distance();
+
+  int _sumHr = 0;
+  int _sumCadence = 0;
+  int _sumPower = 0;
+  int _samples = 0;
 
   @override
   void initState() {
     super.initState();
-    _scanAndConnect();
+    optimizer.mode = mode;
+    _initLocation();
   }
 
-  void _scanAndConnect() async {
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
-    FlutterBluePlus.scanResults.listen((results) async {
-      for (final r in results) {
-        final name = (r.device.name).toLowerCase();
+  @override
+  void dispose() {
+    _locSub?.cancel();
+    super.dispose();
+  }
 
-        // Garmin HRM-Dual
-        if (name.contains("garmin")) {
-          await r.device.connect(license: "pub.dev.flutter_blue_plus.license");
-          final services = await r.device.discoverServices();
-          for (final s in services) {
-            if (s.uuid.toString().toLowerCase() == "0000180d-0000-1000-8000-00805f9b34fb") {
-              for (final c in s.characteristics) {
-                if (c.uuid.toString().toLowerCase() == "00002a37-0000-1000-8000-00805f9b34fb") {
-                  await c.setNotifyValue(true);
-                  c.onValueReceived.listen((data) {
-                    if (data.isNotEmpty) {
-                      final flags = data[0];
-                      int hr;
-                      if ((flags & 0x01) == 0x01 && data.length >= 3) {
-                        hr = (data[1] | (data[2] << 8));
-                      } else {
-                        hr = data.length >= 2 ? data[1] : 0;
-                      }
-                      setState(() => hrBpm = hr);
-                      _updatePrompt();
-                    }
-                  });
-                }
-              }
+  Future<void> _initLocation() async {
+    bool serviceEnabled = await _location.serviceEnabled();
+    if (!serviceEnabled) serviceEnabled = await _location.requestService();
+    PermissionStatus permissionGranted = await _location.hasPermission();
+    if (permissionGranted == PermissionStatus.denied) {
+      permissionGranted = await _location.requestPermission();
+    }
+    if (permissionGranted == PermissionStatus.granted) {
+      _locSub = _location.onLocationChanged.listen((loc) {
+        if (loc.latitude == null || loc.longitude == null) return;
+        final point = LatLng(loc.latitude!, loc.longitude!);
+        setState(() {
+          _currentPos = point;
+          if (recording) {
+            if (_routePoints.isNotEmpty) {
+              distanceMeters += _haversine.as(LengthUnit.Meter, _routePoints.last, point);
+            }
+            _routePoints.add(point);
+            if (mode == WorkoutType.run && loc.speed != null && loc.speed! > 0.3) {
+              final speedMps = loc.speed!;
+              paceSecPerKm = max(180, min(900, (1000 / speedMps).round()));
             }
           }
-        }
+        });
+      });
+    }
+  }
 
-        // Stryd Pod 2
-        if (name.contains("stryd")) {
-          await r.device.connect(license: "pub.dev.flutter_blue_plus.license");
-          final services = await r.device.discoverServices();
-          for (final s in services) {
-            if (s.uuid.toString().toLowerCase().contains("fc00")) {
-              for (final c in s.characteristics) {
-                final cid = c.uuid.toString().toLowerCase();
-                if (cid.contains("fc01")) {
-                  await c.setNotifyValue(true);
-                  c.onValueReceived.listen((data) {
-                    final w = data.isNotEmpty ? data[0] : 0;
-                    setState(() => powerW = w);
-                    _updatePrompt();
-                  });
-                }
-                if (cid.contains("fc02")) {
-                  await c.setNotifyValue(true);
-                  c.onValueReceived.listen((data) {
-                    final spm = data.isNotEmpty ? data[0] : 0;
-                    setState(() => cadenceSpm = spm);
-                    _updatePrompt();
-                  });
-                }
-              }
-            }
-          }
-        }
+  void _onSensorUpdate() {
+    optimizer.updateSensors(
+      cadence: cadence,
+      power: power,
+      hr: hr,
+      paceSecPerKm: paceSecPerKm,
+    );
+    setState(() {
+      efficiency = optimizer.currentEfficiency;
+      prompt = optimizer.shiftPrompt();
+      if (recording) {
+        _sumHr += hr;
+        _sumCadence += cadence;
+        _sumPower += power;
+        _samples += 1;
       }
     });
   }
 
-  void _updatePrompt() {
-    final paceMinPerKm = paceSecPerKm / 60.0;
-    final runEfficiency = hrBpm > 0 ? (paceMinPerKm / hrBpm) : 0.0;
-    final rideEfficiency = hrBpm > 0 ? (powerW / hrBpm) : 0.0;
+  void _startStop() {
+    setState(() {
+      if (!recording) {
+        recording = true;
+        startTime = DateTime.now();
+        distanceMeters = 0.0;
+        _routePoints.clear();
+        _sumHr = 0;
+        _sumCadence = 0;
+        _sumPower = 0;
+        _samples = 0;
+      } else {
+        recording = false;
+        final endTime = DateTime.now();
+        final duration = endTime.difference(startTime!);
+        final distanceKm = distanceMeters / 1000.0;
+        final avgHr = _samples > 0 ? (_sumHr / _samples).round() : 0;
+        final avgCadence = _samples > 0 ? (_sumCadence / _samples).round() : 0;
+        final avgPower = mode == WorkoutType.cycle && _samples > 0 ? (_sumPower / _samples) : 0.0;
+        final avgPaceMinPerKm = mode == WorkoutType.run && distanceKm > 0
+            ? (duration.inSeconds / 60.0) / distanceKm
+            : 0.0;
+        final efficiencyScore = optimizer.currentEfficiency;
 
-    final optimalRun = 176;
-    final optimalRide = 90;
-    final optimal = powerW > 0 ? optimalRide : optimalRun;
-    final diff = optimal - cadenceSpm;
-
-    if (diff.abs() >= 5) {
-      prompt = diff > 0
-          ? "Increase cadence (+$diff) → target $optimal"
-          : "Reduce cadence (−${diff.abs()}) → target $optimal";
-    } else {
-      prompt = "Cadence optimal ($optimal)";
-    }
+        final workout = Workout(
+          date: endTime,
+          type: mode,
+          distanceKm: distanceKm,
+          duration: duration,
+          avgHr: avgHr,
+          avgCadence: avgCadence,
+          avgPaceMinPerKm: avgPaceMinPerKm,
+          avgPower: avgPower,
+          efficiencyScore: efficiencyScore,
+        );
+        widget.onWorkoutSaved(workout);
+      }
+    });
   }
 
   String _formatPace(int secPerKm) {
@@ -111,72 +269,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final paceText = _formatPace(paceSecPerKm);
-    final paceMinPerKm = paceSecPerKm / 60.0;
-    final runEff = hrBpm > 0 ? (paceMinPerKm / hrBpm) : 0.0;
-    final rideEff = hrBpm > 0 ? (powerW / hrBpm) : 0.0;
-
     return Scaffold(
-      appBar: AppBar(title: const Text("Workout")),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _stat("Cadence", "$cadenceSpm", "spm"),
-                _stat("HR", "$hrBpm", "BPM"),
-                _stat("Pace", paceText, ""),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (premiumEnabled)
-              Text(
-                powerW > 0
-                    ? "Efficiency: ${rideEff.toStringAsFixed(2)} W/BPM"
-                    : "Efficiency: ${runEff.toStringAsFixed(3)} min/km per BPM",
-                style: const TextStyle(fontSize: 22, color: Colors.green),
-              ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(prompt, style: const TextStyle(fontSize: 20)),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                await FlutterBluePlus.stopScan();
-                await FlutterBluePlus.startScan(timeout: const Duration(seconds: 6));
-              },
-              child: const Text("Scan BLE"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(String title, String value, String unit) {
-    return Column(
-      children: [
-        Text(title, style: const TextStyle(color: Colors.grey)),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(value, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w600)),
-            if (unit.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 4.0),
-                child: Text(unit, style: const TextStyle(color: Colors.grey)),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
+      appBar: AppBar(
+        title: const Text("Workout"),
+        actions: [
+          IconButton(icon: const Icon(Icons.play_arrow), onPressed: recording
