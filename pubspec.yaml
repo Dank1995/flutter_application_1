@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  rxdart: ^0.28.0
+  flutter_blue_plus: ^2.0.2
 
 dev_dependencies:
   flutter_test:
