@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:location/location.dart';
+import 'package:location/location.dart' as loc;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 enum WorkoutType { run, cycle }
@@ -31,9 +31,9 @@ class CadenceOptimizerAI {
     if (currentHr == 0) return 0;
     if (mode == WorkoutType.run) {
       final paceMinPerKm = paceSecPerKm / 60.0;
-      return paceMinPerKm / currentHr; // min/km per BPM
+      return paceMinPerKm / currentHr;
     } else {
-      return currentPower / currentHr; // W/BPM
+      return currentPower / currentHr;
     }
   }
 
@@ -147,8 +147,8 @@ class _WorkoutPagerState extends State<WorkoutPager> {
   String prompt = "Waiting for sensors...";
   double efficiency = 0.0;
 
-  final Location _location = Location();
-  StreamSubscription<LocationData>? _locSub;
+  final loc.Location _location = loc.Location();
+  StreamSubscription<loc.LocationData>? _locSub;
   final List<LatLng> _routePoints = [];
   LatLng? _currentPos;
   bool recording = false;
@@ -168,23 +168,18 @@ class _WorkoutPagerState extends State<WorkoutPager> {
     _initLocation();
   }
 
-  @override
-  void dispose() {
-    _locSub?.cancel();
-    super.dispose();
-  }
-
   Future<void> _initLocation() async {
     bool serviceEnabled = await _location.serviceEnabled();
     if (!serviceEnabled) serviceEnabled = await _location.requestService();
-    PermissionStatus permissionGranted = await _location.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
+    var permissionGranted = await _location.hasPermission();
+    if (permissionGranted == loc.PermissionStatus.denied) {
       permissionGranted = await _location.requestPermission();
     }
-    if (permissionGranted == PermissionStatus.granted) {
-      _locSub = _location.onLocationChanged.listen((loc) {
-        if (loc.latitude == null || loc.longitude == null) return;
-        final point = LatLng(loc.latitude!, loc.longitude!);
+    if (permissionGranted == loc.PermissionStatus.granted ||
+        permissionGranted == loc.PermissionStatus.grantedLimited) {
+      _locSub = _location.onLocationChanged.listen((loc.LocationData locData) {
+        if (locData.latitude == null || locData.longitude == null) return;
+        final point = LatLng(locData.latitude!, locData.longitude!);
         setState(() {
           _currentPos = point;
           if (recording) {
@@ -192,8 +187,8 @@ class _WorkoutPagerState extends State<WorkoutPager> {
               distanceMeters += _haversine.as(LengthUnit.Meter, _routePoints.last, point);
             }
             _routePoints.add(point);
-            if (mode == WorkoutType.run && loc.speed != null && loc.speed! > 0.3) {
-              final speedMps = loc.speed!;
+            if (mode == WorkoutType.run && locData.speed != null && locData.speed! > 0.3) {
+              final speedMps = locData.speed!;
               paceSecPerKm = max(180, min(900, (1000 / speedMps).round()));
             }
           }
@@ -263,14 +258,3 @@ class _WorkoutPagerState extends State<WorkoutPager> {
 
   String _formatPace(int secPerKm) {
     final m = secPerKm ~/ 60;
-    final s = secPerKm % 60;
-    return "$m:${s.toString().padLeft(2, '0')} min/km";
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Workout"),
-        actions: [
-          IconButton(icon: const Icon(Icons.play_arrow), onPressed: recording
