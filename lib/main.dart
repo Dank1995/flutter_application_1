@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:location/location.dart' as loc;
+import 'package:location/location.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 enum WorkoutType { run, cycle }
@@ -147,8 +147,8 @@ class _WorkoutPagerState extends State<WorkoutPager> {
   String prompt = "Waiting for sensors...";
   double efficiency = 0.0;
 
-  final loc.Location _location = loc.Location();
-  StreamSubscription<loc.LocationData>? _locSub;
+  final Location _location = Location();
+  StreamSubscription<LocationData>? _locSub;
   final List<LatLng> _routePoints = [];
   LatLng? _currentPos;
   bool recording = false;
@@ -172,12 +172,12 @@ class _WorkoutPagerState extends State<WorkoutPager> {
     bool serviceEnabled = await _location.serviceEnabled();
     if (!serviceEnabled) serviceEnabled = await _location.requestService();
     var permissionGranted = await _location.hasPermission();
-    if (permissionGranted == loc.PermissionStatus.denied) {
+    if (permissionGranted == PermissionStatus.denied) {
       permissionGranted = await _location.requestPermission();
     }
-    if (permissionGranted == loc.PermissionStatus.granted ||
-        permissionGranted == loc.PermissionStatus.grantedLimited) {
-      _locSub = _location.onLocationChanged.listen((loc.LocationData locData) {
+    if (permissionGranted == PermissionStatus.granted ||
+        permissionGranted == PermissionStatus.grantedLimited) {
+      _locSub = _location.onLocationChanged.listen((LocationData locData) {
         if (locData.latitude == null || locData.longitude == null) return;
         final point = LatLng(locData.latitude!, locData.longitude!);
         setState(() {
@@ -257,4 +257,25 @@ class _WorkoutPagerState extends State<WorkoutPager> {
   }
 
   String _formatPace(int secPerKm) {
-    final m = secPerKm ~/ 60;
+    final minutes = secPerKm ~/ 60;
+    final seconds = secPerKm % 60;
+    return "$minutes:${seconds.toString().padLeft(2, '0')} /km";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Workout")),
+      body: Column(
+        children: [
+          Text("Cadence: $cadence"),
+          Text("Heart Rate: $hr"),
+          Text("Power: $power"),
+          Text("Efficiency: ${efficiency.toStringAsFixed(2)}"),
+          Text("Prompt: $prompt"),
+          IconButton(
+            icon: const Icon(Icons.play_arrow),
+            onPressed: recording ? null : _startStop,
+          ),
+          IconButton(
+            icon: const Icon(Icons
