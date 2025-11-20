@@ -1,10 +1,5 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart'; // Imported but not required for this basic UI
-import 'package:latlong2/latlong.dart';
-import 'package:location/location.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 enum WorkoutType { run, cycle }
 
@@ -85,6 +80,7 @@ void main() {
 
 class CadenceCoachApp extends StatelessWidget {
   const CadenceCoachApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -97,6 +93,7 @@ class CadenceCoachApp extends StatelessWidget {
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -132,6 +129,7 @@ class _AppShellState extends State<AppShell> {
 class WorkoutPager extends StatefulWidget {
   final void Function(Workout) onWorkoutSaved;
   const WorkoutPager({super.key, required this.onWorkoutSaved});
+
   @override
   State<WorkoutPager> createState() => _WorkoutPagerState();
 }
@@ -147,54 +145,14 @@ class _WorkoutPagerState extends State<WorkoutPager> {
   String prompt = "Waiting for sensors...";
   double efficiency = 0.0;
 
-  final Location _location = Location();
-  StreamSubscription<LocationData>? _locSub;
-  final List<LatLng> _routePoints = [];
-  LatLng? _currentPos;
   bool recording = false;
   DateTime? startTime;
-  double distanceMeters = 0.0;
-  final Distance _haversine = const Distance();
+  double distanceKm = 0.0;
 
   int _sumHr = 0;
   int _sumCadence = 0;
   int _sumPower = 0;
   int _samples = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    optimizer.mode = mode;
-    _initLocation();
-  }
-
-  Future<void> _initLocation() async {
-    bool serviceEnabled = await _location.serviceEnabled();
-    if (!serviceEnabled) serviceEnabled = await _location.requestService();
-    var permissionGranted = await _location.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await _location.requestPermission();
-    }
-    if (permissionGranted == PermissionStatus.granted) {
-      _locSub = _location.onLocationChanged.listen((LocationData locData) {
-        if (locData.latitude == null || locData.longitude == null) return;
-        final point = LatLng(locData.latitude!, locData.longitude!);
-        setState(() {
-          _currentPos = point;
-          if (recording) {
-            if (_routePoints.isNotEmpty) {
-              distanceMeters += _haversine.as(LengthUnit.Meter, _routePoints.last, point);
-            }
-            _routePoints.add(point);
-            if (mode == WorkoutType.run && locData.speed != null && locData.speed! > 0.3) {
-              final speedMps = locData.speed!;
-              paceSecPerKm = max(180, min(900, (1000 / speedMps).round()));
-            }
-          }
-        });
-      });
-    }
-  }
 
   void _onSensorUpdate() {
     optimizer.updateSensors(
@@ -206,6 +164,7 @@ class _WorkoutPagerState extends State<WorkoutPager> {
     setState(() {
       efficiency = optimizer.currentEfficiency;
       prompt = optimizer.shiftPrompt();
+
       if (recording) {
         _sumHr += hr;
         _sumCadence += cadence;
@@ -220,8 +179,7 @@ class _WorkoutPagerState extends State<WorkoutPager> {
       if (!recording) {
         recording = true;
         startTime = DateTime.now();
-        distanceMeters = 0.0;
-        _routePoints.clear();
+        distanceKm = 0.0;
         _sumHr = 0;
         _sumCadence = 0;
         _sumPower = 0;
@@ -230,14 +188,15 @@ class _WorkoutPagerState extends State<WorkoutPager> {
         recording = false;
         final endTime = DateTime.now();
         final duration = endTime.difference(startTime!);
-        final distanceKm = distanceMeters / 1000.0;
+
         final avgHr = _samples > 0 ? (_sumHr / _samples).round() : 0;
         final avgCadence = _samples > 0 ? (_sumCadence / _samples).round() : 0;
-        final avgPower = mode == WorkoutType.cycle && _samples > 0 ? (_sumPower / _samples) : 0.0;
+        final avgPower = mode == WorkoutType.cycle && _samples > 0
+            ? (_sumPower / _samples)
+            : 0.0;
         final avgPaceMinPerKm = mode == WorkoutType.run && distanceKm > 0
             ? (duration.inSeconds / 60.0) / distanceKm
             : 0.0;
-        final efficiencyScore = optimizer.currentEfficiency;
 
         final workout = Workout(
           date: endTime,
@@ -248,8 +207,9 @@ class _WorkoutPagerState extends State<WorkoutPager> {
           avgCadence: avgCadence,
           avgPaceMinPerKm: avgPaceMinPerKm,
           avgPower: avgPower,
-          efficiencyScore: efficiencyScore,
+          efficiencyScore: optimizer.currentEfficiency,
         );
+
         widget.onWorkoutSaved(workout);
       }
     });
@@ -286,14 +246,17 @@ class _WorkoutPagerState extends State<WorkoutPager> {
               },
             ),
             const SizedBox(height: 8),
+
             Text("Cadence: $cadence"),
             Text("Heart Rate: $hr"),
             Text("Power: $power"),
             Text("Efficiency: ${efficiency.toStringAsFixed(2)}"),
             Text("Prompt: $prompt"),
             const SizedBox(height: 8),
+
             Text("Estimated pace: ${_formatPace(paceSecPerKm)}"),
             const SizedBox(height: 16),
+
             Row(
               children: [
                 ElevatedButton(
@@ -312,10 +275,9 @@ class _WorkoutPagerState extends State<WorkoutPager> {
                 ),
               ],
             ),
+
             const SizedBox(height: 16),
-            if (_currentPos != null)
-              Text("Current position: ${_currentPos!.latitude.toStringAsFixed(5)}, ${_currentPos!.longitude.toStringAsFixed(5)}"),
-            Text("Distance: ${(distanceMeters / 1000).toStringAsFixed(2)} km"),
+            Text("Distance: ${distanceKm.toStringAsFixed(2)} km"),
           ],
         ),
       ),
@@ -338,10 +300,15 @@ class HistoryScreen extends StatelessWidget {
               itemBuilder: (context, i) {
                 final w = workouts[i];
                 return ListTile(
-                  leading: Icon(w.type == WorkoutType.run ? Icons.directions_run : Icons.pedal_bike),
-                  title: Text("${w.type.name.toUpperCase()} • ${w.distanceKm.toStringAsFixed(2)} km"),
-                  subtitle: Text("${w.date.toLocal()} • ${w.duration.inMinutes} min"),
-                  trailing: Text("Eff: ${w.efficiencyScore.toStringAsFixed(2)}"),
+                  leading: Icon(
+                    w.type == WorkoutType.run
+                        ? Icons.directions_run
+                        : Icons.pedal_bike,
+                  ),
+                  title: Text("${w.type.name.toUpperCase()} • ${w.distanceKm} km"),
+                  subtitle: Text(
+                    "Avg HR: ${w.avgHr}, Cadence: ${w.avgCadence}, Efficiency: ${w.efficiencyScore.toStringAsFixed(2)}",
+                  ),
                 );
               },
             ),
@@ -354,11 +321,8 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Settings")),
-      body: const Center(
-        child: Text("Settings go here"),
-      ),
+    return const Scaffold(
+      body: Center(child: Text("Settings")),
     );
   }
 }
