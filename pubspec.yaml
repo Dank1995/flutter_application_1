@@ -1,29 +1,28 @@
-workflows:
-  flutter-app:
-    name: Build Flutter App
-    max_build_duration: 60
-    environment:
-      flutter: stable
+name: cadence_coach
+description: A cadence optimizer and workout tracker app.
+version: 1.0.0+1
 
-    scripts:
-      - name: Install Flutter dependencies
-        script: |
-          flutter pub get
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.16.0'
 
-      - name: Build Android APK
-        script: |
-          flutter build apk --release
+dependencies:
+  flutter:
+    sdk: flutter
 
-      - name: Build Android AppBundle
-        script: |
-          flutter build appbundle --release
+  cupertino_icons: ^1.0.8
+  flutter_lints: ^6.0.0
+  lints: ^6.0.0
 
-      - name: Build iOS (no code signing)
-        script: |
-          flutter build ios --release --no-codesign
+  # Optional packages for sensors or BLE support
+  flutter_blue_plus: ^8.0.1
+  rxdart: ^0.29.0
+  # Add other packages you may need for charts, storage, etc.
 
-    artifacts:
-      - build/**/outputs/**/*.apk
-      - build/**/outputs/**/*.aab
-      - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+
