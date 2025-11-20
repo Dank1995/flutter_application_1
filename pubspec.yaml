@@ -9,15 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   cupertino_icons: ^1.0.8
-  flutter_lints: ^6.0.0
-  lints: ^6.0.0
-
-  # Optional packages for sensors or BLE support
-  flutter_blue_plus: ^8.0.1
-  rxdart: ^0.29.0
-  # Add other packages you may need for charts, storage, etc.
 
 dev_dependencies:
   flutter_test:
@@ -25,4 +17,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
