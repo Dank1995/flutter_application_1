@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map/flutter_map.dart'; // Imported but not required for this basic UI
 import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -175,8 +175,7 @@ class _WorkoutPagerState extends State<WorkoutPager> {
     if (permissionGranted == PermissionStatus.denied) {
       permissionGranted = await _location.requestPermission();
     }
-    if (permissionGranted == PermissionStatus.granted ||
-        permissionGranted == PermissionStatus.grantedLimited) {
+    if (permissionGranted == PermissionStatus.granted) {
       _locSub = _location.onLocationChanged.listen((LocationData locData) {
         if (locData.latitude == null || locData.longitude == null) return;
         final point = LatLng(locData.latitude!, locData.longitude!);
@@ -266,16 +265,100 @@ class _WorkoutPagerState extends State<WorkoutPager> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Workout")),
-      body: Column(
-        children: [
-          Text("Cadence: $cadence"),
-          Text("Heart Rate: $hr"),
-          Text("Power: $power"),
-          Text("Efficiency: ${efficiency.toStringAsFixed(2)}"),
-          Text("Prompt: $prompt"),
-          IconButton(
-            icon: const Icon(Icons.play_arrow),
-            onPressed: recording ? null : _startStop,
-          ),
-          IconButton(
-            icon: const Icon(Icons
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DropdownButton<WorkoutType>(
+              value: mode,
+              items: const [
+                DropdownMenuItem(value: WorkoutType.run, child: Text("Run")),
+                DropdownMenuItem(value: WorkoutType.cycle, child: Text("Cycle")),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    mode = val;
+                    optimizer.mode = val;
+                  });
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            Text("Cadence: $cadence"),
+            Text("Heart Rate: $hr"),
+            Text("Power: $power"),
+            Text("Efficiency: ${efficiency.toStringAsFixed(2)}"),
+            Text("Prompt: $prompt"),
+            const SizedBox(height: 8),
+            Text("Estimated pace: ${_formatPace(paceSecPerKm)}"),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                ElevatedButton(
+                  onPressed: _startStop,
+                  child: Text(recording ? "Stop" : "Start"),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: () {
+                    cadence = max(0, cadence + 2);
+                    hr = max(0, hr + 1);
+                    power = max(0, power + 5);
+                    _onSensorUpdate();
+                  },
+                  child: const Text("Sim tick"),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (_currentPos != null)
+              Text("Current position: ${_currentPos!.latitude.toStringAsFixed(5)}, ${_currentPos!.longitude.toStringAsFixed(5)}"),
+            Text("Distance: ${(distanceMeters / 1000).toStringAsFixed(2)} km"),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class HistoryScreen extends StatelessWidget {
+  final List<Workout> workouts;
+  const HistoryScreen({super.key, required this.workouts});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("History")),
+      body: workouts.isEmpty
+          ? const Center(child: Text("No workouts yet"))
+          : ListView.builder(
+              itemCount: workouts.length,
+              itemBuilder: (context, i) {
+                final w = workouts[i];
+                return ListTile(
+                  leading: Icon(w.type == WorkoutType.run ? Icons.directions_run : Icons.pedal_bike),
+                  title: Text("${w.type.name.toUpperCase()} • ${w.distanceKm.toStringAsFixed(2)} km"),
+                  subtitle: Text("${w.date.toLocal()} • ${w.duration.inMinutes} min"),
+                  trailing: Text("Eff: ${w.efficiencyScore.toStringAsFixed(2)}"),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Settings")),
+      body: const Center(
+        child: Text("Settings go here"),
+      ),
+    );
+  }
+}
