@@ -11,6 +11,7 @@ workflows:
             -t lib/main_prod.dart
     artifacts:
       - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/release/*.aab
 
   ios-release:
     name: iOS Release
@@ -40,4 +41,5 @@ workflows:
           flutter build web --release
     artifacts:
       - build/web/**
+
 
