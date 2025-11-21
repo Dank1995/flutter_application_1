@@ -1,45 +1,21 @@
-workflows:
-  android-release:
-    name: Android Release
-    environment:
-      flutter: stable
-    scripts:
-      - name: Build Android release
-        script: |
-          flutter build apk --release \
-            --flavor android-production \
-            -t lib/main_prod.dart
-    artifacts:
-      - build/app/outputs/flutter-apk/*.apk
-      - build/app/outputs/bundle/release/*.aab
+name: cadence_coach
+description: A cadence optimizer and workout tracker app.
+version: 1.0.0+1
 
-  ios-release:
-    name: iOS Release
-    environment:
-      flutter: stable
-      xcode: latest
-    scripts:
-      - name: Build iOS release
-        script: |
-          flutter build ipa --release \
-            --flavor ios-production \
-            -t lib/main_prod.dart
-    artifacts:
-      - build/ios/ipa/*.ipa
-      - build/ios/ipa/*.dSYM.zip
-    publishing:
-      app_store_connect:
-        api_key: Encrypted(…)   # replace with your App Store Connect API key
+environment:
+  sdk: '^3.10.0'
+  flutter: '>=3.16.0'
 
-  web-release:
-    name: Web Release
-    environment:
-      flutter: stable
-    scripts:
-      - name: Build Web release
-        script: |
-          flutter build web --release
-    artifacts:
-      - build/web/**
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  rxdart: ^0.28.0
+  flutter_blue_plus: ^2.0.2
 
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
 
+flutter:
+  uses-material-design: true
