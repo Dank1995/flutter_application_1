@@ -1,6 +1,6 @@
 name: cadence_coach
 description: A cadence optimizer and workout tracker app.
-version: 1.0.0+9   # <-- bumped build number to 9
+version: 1.0.0+10   # <-- bumped build number to 10
 
 environment:
   sdk: '^3.10.0'
