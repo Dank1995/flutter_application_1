@@ -20,7 +20,7 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
-    <string>11</string> <!-- bumped build number -->
+    <string>12</string> <!-- bumped build number -->
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UILaunchStoryboardName</key>
@@ -54,10 +54,6 @@
     <string>This app uses location data to calculate pace and distance during workouts.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>This app uses location data in the background to track workouts.</string>
-    <key>NSCameraUsageDescription</key>
-    <string>This app uses the camera to scan workout equipment or capture activity data when needed.</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>This app uses the microphone to play audio cues during workouts.</string>
 
     <!-- Encryption compliance -->
     <key>ITSAppUsesNonExemptEncryption</key>
@@ -71,3 +67,4 @@
     </array>
 </dict>
 </plist>
+
