@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
-    <string>Cadence Coach</string> <!-- Update display name -->
+    <string>Cadence Coach</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -55,5 +55,9 @@
     <string>This app uses the camera to scan workout equipment or capture activity data when needed.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>This app uses the microphone to record audio cues or detect cadence signals during workouts.</string>
+
+    <!-- Encryption compliance -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 </dict>
 </plist>
