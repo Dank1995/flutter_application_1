@@ -52,18 +52,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _startLocationTracking();
   }
 
-  void _startBluetoothScan() {
-    flutterBlue.startScan(timeout: const Duration(seconds: 5));
+  void _startBluetoothScan() async {
+    // Start scanning
+    await flutterBlue.startScan(timeout: const Duration(seconds: 5));
 
+    // Listen for results
     flutterBlue.scanResults.listen((results) async {
       for (ScanResult r in results) {
         if (connectedDevice == null) {
           connectedDevice = r.device;
           await connectedDevice!.connect(
             timeout: const Duration(seconds: 10),
-            license: "demo", // required by your plugin version
           );
-          flutterBlue.stopScan();
+          await flutterBlue.stopScan();
         }
       }
     });
