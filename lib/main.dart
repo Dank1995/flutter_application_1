@@ -62,7 +62,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           await connectedDevice!.connect(
             timeout: const Duration(seconds: 10),
             // If your plugin version requires a license, add it here:
-            // license: "your-license-key",
+            // license: "demo",
           );
           flutterBlue.stopScan();
         }
