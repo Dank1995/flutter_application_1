@@ -54,12 +54,16 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
   void _startBluetoothScan() {
     flutterBlue.startScan(timeout: const Duration(seconds: 5));
-    flutterBlue.scanResults.listen((results) {
+
+    flutterBlue.scanResults.listen((results) async {
       for (ScanResult r in results) {
-        // Example: connect to first device found
         if (connectedDevice == null) {
           connectedDevice = r.device;
-          connectedDevice!.connect(); // newer versions may require license/timeout
+          await connectedDevice!.connect(
+            timeout: const Duration(seconds: 10),
+            // If your plugin version requires a license, add it here:
+            // license: "your-license-key",
+          );
           flutterBlue.stopScan();
         }
       }
