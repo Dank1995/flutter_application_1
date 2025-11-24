@@ -61,8 +61,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
           connectedDevice = r.device;
           await connectedDevice!.connect(
             timeout: const Duration(seconds: 10),
-            // If your plugin version requires a license, add it here:
-            // license: "demo",
+            license: "demo", // required by your plugin version
           );
           flutterBlue.stopScan();
         }
@@ -166,4 +165,5 @@ class CadenceOptimizerAI {
     return bestCadence;
   }
 }
+
 
