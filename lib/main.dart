@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cadence Coach',
+      title: 'GoldilocksAI',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const MyHomePage(),
     );
@@ -35,7 +35,10 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late StreamSubscription<List<ScanResult>> scanSub;
+  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+  StreamSubscription<List<ScanResult>>? scanSub;
+  BluetoothDevice? cadenceDevice;
+  BluetoothDevice? hrDevice;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -56,32 +59,60 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
-    scanSub.cancel();
+    scanSub?.cancel();
     timer?.cancel();
     super.dispose();
   }
 
+  // -----------------------------
+  // BLE Scan and Connect
+  // -----------------------------
   void startScanning() {
-    scanSub = FlutterBluePlus.scanResults.listen((results) {
+    scanSub = flutterBlue.scanResults.listen((results) {
+      for (var r in results) {
+        // Example: pick first cadence/HR device by name
+        if (r.device.name.contains('Cadence') && cadenceDevice == null) {
+          cadenceDevice = r.device;
+        }
+        if (r.device.name.contains('HR') && hrDevice == null) {
+          hrDevice = r.device;
+        }
+      }
+
+      // Mock random metrics while scanning
       int cadence = 70 + random.nextInt(40);
       int power = 100 + random.nextInt(150);
       int hr = 120 + random.nextInt(40);
       updateMetrics(cadence, power, hr);
     });
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
+    flutterBlue.startScan(timeout: const Duration(seconds: 5));
+
+    // Timer to log ride every second
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
     });
   }
 
-  void stopScanning() async {
-    await FlutterBluePlus.stopScan();
-    await scanSub.cancel();
+  Future<void> stopScanning() async {
+    await flutterBlue.stopScan();
+    await scanSub?.cancel();
     timer?.cancel();
   }
 
+  Future<void> connectDevices() async {
+    if (cadenceDevice != null) {
+      await cadenceDevice!.connect(license: License('your_license_here'));
+    }
+    if (hrDevice != null) {
+      await hrDevice!.connect(license: License('your_license_here'));
+    }
+  }
+
+  // -----------------------------
+  // Metrics & CSV Logging
+  // -----------------------------
   void updateMetrics(int cadence, int power, int hr) {
     optimizer.updateSensors(cadence, power, hr);
     var result = optimizer.shiftPrompt();
@@ -118,10 +149,13 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  // -----------------------------
+  // UI
+  // -----------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadence Coach')),
+      appBar: AppBar(title: const Text('GoldilocksAI')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -131,7 +165,6 @@ class _MyHomePageState extends State<MyHomePage> {
             Text('Heart Rate: $currentHR bpm'),
             Text('Efficiency: ${currentEfficiency.toStringAsFixed(2)}'),
             const SizedBox(height: 20),
-
             Container(
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.symmetric(vertical: 10),
@@ -148,11 +181,11 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
             ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
             ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
+            ElevatedButton(onPressed: connectDevices, child: const Text('Connect Devices')),
           ],
         ),
       ),
@@ -190,8 +223,8 @@ class CadenceOptimizerAI {
     int powerBucket = (currentPower / 10).round() * 10;
     var cadences = efficiencyMap[powerBucket];
     if (cadences == null || cadences.isEmpty) return 90;
-    var avgEff = cadences.map((k,v) => MapEntry(k, v.reduce((a,b)=>a+b)/v.length));
-    int optimal = avgEff.entries.reduce((a,b)=>a.value>b.value?a:b).key;
+    var avgEff = cadences.map((k, v) => MapEntry(k, v.reduce((a, b) => a + b) / v.length));
+    int optimal = avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
     return optimal;
   }
 
