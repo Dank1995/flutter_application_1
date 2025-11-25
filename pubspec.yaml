@@ -1,21 +1,22 @@
 name: flutter_application_1
-description: BLE Cadence Coach with Optimizer
+description: BLE cadence optimizer with CSV export
 publish_to: "none"
-
-version: 1.0.51+51
+version: 1.0.53+53
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
+  sdk: ">=3.2.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-
   flutter_blue_plus: ^2.0.2
   path_provider: ^2.0.14
-  csv: ^5.1.0
-  flutter_lints: ^2.0.3
+  csv: ^5.1.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^2.0.3
+
+flutter:
+  uses-material-design: true

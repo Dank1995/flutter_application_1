@@ -30,9 +30,6 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus(); // singleton
-  StreamSubscription<List<ScanResult>>? scanSub;
-
   int cadence = 0;
   int power = 0;
   int hr = 0;
@@ -41,6 +38,7 @@ class _DashboardState extends State<Dashboard> {
     ['Timestamp', 'Cadence', 'Power', 'HR']
   ];
 
+  StreamSubscription<ScanResult>? scanSub;
   Timer? _optimizerTimer;
 
   @override
@@ -53,27 +51,25 @@ class _DashboardState extends State<Dashboard> {
   }
 
   void startScan() {
-    flutterBlue.startScan(timeout: const Duration(seconds: 5));
-    scanSub = flutterBlue.scanResults.listen((results) {
-      for (var result in results) {
-        setState(() {
-          cadence = 80 + (result.rssi % 10).toInt();
-          power = 150 + (result.rssi % 20).toInt();
-          hr = 120 + (result.rssi % 15).toInt();
-        });
+    scanSub = FlutterBluePlus.instance
+        .scan(timeout: const Duration(seconds: 5))
+        .listen((result) {
+      setState(() {
+        cadence = 80 + (result.rssi % 10).toInt();
+        power = 150 + (result.rssi % 20).toInt();
+        hr = 120 + (result.rssi % 15).toInt();
+      });
 
-        csvData.add([
-          DateTime.now().toIso8601String(),
-          cadence,
-          power,
-          hr
-        ]);
-      }
+      csvData.add([
+        DateTime.now().toIso8601String(),
+        cadence,
+        power,
+        hr
+      ]);
     });
   }
 
   void stopScan() {
-    flutterBlue.stopScan();
     scanSub?.cancel();
   }
 
