@@ -1,25 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>
-  <string>CadenceCoach</string>
-  <key>CFBundleDisplayName</key>
-  <string>CadenceCoach</string>
-  <key>CFBundleIdentifier</key>
-  <string>io.flutter.cadencecoach</string>
-  <key>CFBundleVersion</key>
-  <string>1.0.0</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
-  <key>MinimumOSVersion</key>
-  <string>13.0</string>
+    <!-- App info -->
+    <key>CFBundleName</key>
+    <string>CadenceCoach</string>
+    <key>CFBundleDisplayName</key>
+    <string>Cadence Coach</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.example.cadence_coach</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
 
-  <key>NSLocationWhenInUseUsageDescription</key>
-  <string>Access to location is needed to track cycling metrics.</string>
-  <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>Connect to cadence and HR sensors via Bluetooth.</string>
-  <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>Connect to cadence and HR sensors via Bluetooth.</string>
+    <!-- Required for Bluetooth Low Energy (BLE) -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app uses Bluetooth to connect to your HR and Power/Cadence sensors.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app communicates with your cycling sensors via Bluetooth.</string>
+
+    <!-- Background Modes: BLE central mode -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>bluetooth-central</string>
+        <string>fetch</string>
+    </array>
+
+    <!-- Required for vibration (no explicit permission, handled by iOS) -->
+
+    <!-- Optional: location needed if using geolocator for speed/position -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location is used for tracking ride routes and metrics.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Location is used for tracking ride routes and metrics in the background.</string>
+
+    <!-- Other standard iOS settings -->
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
 </dict>
 </plist>
