@@ -1,33 +1,33 @@
 workflows:
-  ios-deploy:
-    name: iOS Build & Deploy v1.0.48
+  build_and_deploy:
+    name: v1.0.50+50 BLE optimizer
     max_build_duration: 60
     environment:
-      vars:
-        FLUTTER_VERSION: stable
       flutter: stable
       xcode: latest
+      cocoapods: default
+      vars:
+        FLUTTER_BUILD_NAME: "1.0.50"
+        FLUTTER_BUILD_NUMBER: "50"
     scripts:
-      - name: Install Flutter dependencies
-        script: |
-          flutter pub get
-      - name: Build iOS Release
-        script: |
-          flutter build ios --release --no-codesign
-      - name: Archive & Export
-        script: |
-          xcodebuild -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -archivePath $CM_BUILD_DIR/build/Runner.xcarchive archive
-          xcodebuild -exportArchive \
-            -archivePath $CM_BUILD_DIR/build/Runner.xcarchive \
-            -exportOptionsPlist ios/ExportOptions.plist \
-            -exportPath $CM_BUILD_DIR/build/Runner
+      - name: Install dependencies
+        script: flutter pub get
+      - name: Run analyzer
+        script: flutter analyze
+      - name: Build iOS
+        script: flutter build ios --release --no-codesign
+      - name: Build Android
+        script: flutter build apk --release
     artifacts:
-      - build/Runner/Runner.ipa
+      - build/ios/iphoneos/Runner.app
+      - build/app/outputs/flutter-apk/app-release.apk
     publishing:
       app_store_connect:
-        api_key: Encrypted(${APP_STORE_CONNECT_API_KEY})
-        ipa_path: build/Runner/Runner.ipa
-        notify_testers: true
+        api_key:
+          secure: EncryptedKeyHere
+        bundle_id: com.example.flutter_application_1
+        release_notes: "v1.0.50+50 BLE optimizer live"
+      google_play:
+        service_account_credentials:
+          secure: EncryptedGoogleServiceKeyHere
+        track: production
