@@ -1,141 +1,196 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import 'package:intl/intl.dart';
+import 'package:audioplayers/audioplayers.dart';
 
-void main() {
-  runApp(CadenceCoachApp());
-}
+void main() => runApp(const MyApp());
 
-class CadenceCoachApp extends StatelessWidget {
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Cadence Coach',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: CadenceHomePage(),
+      home: const Dashboard(),
     );
   }
 }
 
-class CadenceHomePage extends StatefulWidget {
-  @override
-  _CadenceHomePageState createState() => _CadenceHomePageState();
+// -----------------------------
+// Cadence Optimizer AI
+// -----------------------------
+class CadenceOptimizerAI {
+  int currentCadence = 0;
+  int currentPower = 0;
+  int currentHR = 0;
+  double currentEfficiency = 0.0;
+
+  final Map<int, Map<int, List<double>>> efficiencyMap = {};
+
+  void updateSensors(int cadence, int power, int hr) {
+    currentCadence = cadence;
+    currentPower = power;
+    currentHR = hr;
+    currentEfficiency = _calculateEfficiency();
+    _learnCadence(power, cadence, currentEfficiency);
+  }
+
+  double _calculateEfficiency() => currentHR == 0 ? 0 : currentPower / currentHR;
+
+  void _learnCadence(int power, int cadence, double efficiency) {
+    int powerBucket = (power / 10).round() * 10;
+    int cadenceBucket = (cadence / 2).round() * 2;
+    efficiencyMap.putIfAbsent(powerBucket, () => {});
+    efficiencyMap[powerBucket]!.putIfAbsent(cadenceBucket, () => []);
+    efficiencyMap[powerBucket]![cadenceBucket]!.add(efficiency);
+  }
+
+  int predictOptimalCadence() {
+    int powerBucket = (currentPower / 10).round() * 10;
+    if (!efficiencyMap.containsKey(powerBucket)) return 90;
+    final cadences = efficiencyMap[powerBucket]!;
+    final avgEff = {
+      for (var entry in cadences.entries)
+        entry.key: entry.value.reduce((a, b) => a + b) / entry.value.length
+    };
+    return avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+  }
 }
 
-class _CadenceHomePageState extends State<CadenceHomePage> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription? scanSubscription;
-  BluetoothDevice? connectedDevice;
-  List<BluetoothDevice> devicesList = [];
-  Position? currentPosition;
+// -----------------------------
+// BLE Sensor Manager
+// -----------------------------
+class SensorManager {
+  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+  List<BluetoothDevice> devices = [];
+  BluetoothDevice? selectedHRM;
+  BluetoothDevice? selectedPowerCadence;
+
+  StreamSubscription? hrSub;
+  StreamSubscription? powerSub;
+
+  final Map<String, int> sensorData = {
+    "cadence": 0,
+    "power": 0,
+    "hr": 0,
+  };
+
+  Future<void> scanDevices() async {
+    devices = await flutterBlue.scan(timeout: const Duration(seconds: 5)).toList();
+  }
+
+  Future<void> connectToDevice(BluetoothDevice device, {required bool isHRM}) async {
+    await device.connect();
+    List<BluetoothService> services = await device.discoverServices();
+    if (isHRM) {
+      final hrChar = services
+          .expand((s) => s.characteristics)
+          .firstWhere((c) => c.uuid.toString().toLowerCase() == "00002a37-0000-1000-8000-00805f9b34fb");
+      hrSub = device.subscribe(hrChar).listen((data) {
+        sensorData["hr"] = data[1];
+      });
+    } else {
+      final powerChar = services
+          .expand((s) => s.characteristics)
+          .firstWhere((c) => c.uuid.toString().toLowerCase() == "00002a63-0000-1000-8000-00805f9b34fb");
+      powerSub = device.subscribe(powerChar).listen((data) {
+        sensorData["power"] = int.fromBytes(data.sublist(1, 3), Endian.little);
+        sensorData["cadence"] = data.length > 3 ? data[3] : 0;
+      });
+    }
+  }
+}
+
+// -----------------------------
+// Dashboard
+// -----------------------------
+class Dashboard extends StatefulWidget {
+  const Dashboard({super.key});
+  @override
+  State<Dashboard> createState() => _DashboardState();
+}
+
+class _DashboardState extends State<Dashboard> {
+  final optimizer = CadenceOptimizerAI();
+  final sensorManager = SensorManager();
+  final AudioPlayer audioPlayer = AudioPlayer();
+
+  int seconds = 0;
+  Timer? timer;
 
   @override
   void initState() {
     super.initState();
-    _initLocation();
-    _startBluetoothScan();
+    timer = Timer.periodic(const Duration(seconds: 1), (_) => updateSensors());
   }
 
   @override
   void dispose() {
-    scanSubscription?.cancel();
-    connectedDevice?.disconnect();
+    timer?.cancel();
     super.dispose();
   }
 
-  Future<void> _initLocation() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
-    }
+  void updateSensors() {
+    int cadence = sensorManager.sensorData["cadence"]!;
+    int power = sensorManager.sensorData["power"]!;
+    int hr = sensorManager.sensorData["hr"]!;
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return Future.error('Location permissions are denied');
-      }
-    }
+    optimizer.updateSensors(cadence, power, hr);
+    int optimal = optimizer.predictOptimalCadence();
+    bool outOfRange = (cadence - optimal).abs() > 5;
 
-    currentPosition = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
-  }
+    if (outOfRange) audioPlayer.play(AssetSource('assets/alert.mp3'));
 
-  void _startBluetoothScan() async {
-    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
-      (scanResult) async {
-        if (!devicesList.contains(scanResult.device)) {
-          setState(() => devicesList.add(scanResult.device));
-        }
-
-        // Auto-connect to first available device
-        if (connectedDevice == null) {
-          connectedDevice = scanResult.device;
-          try {
-            await connectedDevice!.connect(
-              autoConnect: false,
-              timeout: const Duration(seconds: 10),
-            );
-            await scanSubscription?.cancel();
-          } catch (e) {
-            print('Connection error: $e');
-          }
-        }
-      },
-      onDone: () => print('Scan completed'),
-      onError: (e) => print('Scan error: $e'),
-    );
-  }
-
-  Future<void> logRideData() async {
-    final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/ride_log.csv';
-    final file = File(path);
-
-    final now = DateTime.now();
-    final formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
-    final latitude = currentPosition?.latitude ?? 0.0;
-    final longitude = currentPosition?.longitude ?? 0.0;
-
-    final line = '$formattedDate,$latitude,$longitude\n';
-    await file.writeAsString(line, mode: FileMode.append);
-    print('Logged: $line');
+    setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    int cadence = optimizer.currentCadence;
+    int optimal = optimizer.predictOptimalCadence();
+    int power = optimizer.currentPower;
+    int hr = optimizer.currentHR;
+
     return Scaffold(
-      appBar: AppBar(title: Text('Cadence Coach')),
-      body: Column(
-        children: [
-          ElevatedButton(
-            onPressed: _startBluetoothScan,
-            child: Text('Scan Bluetooth Devices'),
-          ),
-          ElevatedButton(
-            onPressed: logRideData,
-            child: Text('Log Ride Data'),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: devicesList.length,
-              itemBuilder: (context, index) {
-                final device = devicesList[index];
-                return ListTile(
-                  title: Text(device.name.isEmpty ? 'Unknown Device' : device.name),
-                  subtitle: Text(device.id.id),
-                  trailing: connectedDevice?.id == device.id
-                      ? Icon(Icons.bluetooth_connected)
-                      : null,
-                );
+      appBar: AppBar(title: const Text("Cadence Coach")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text("Cadence: $cadence RPM (Optimal: $optimal)"),
+            Text("Power: $power W"),
+            Text("Heart Rate: $hr BPM"),
+            const SizedBox(height: 20),
+            DropdownButton<BluetoothDevice>(
+              hint: const Text("Select HRM"),
+              items: sensorManager.devices.map((d) => DropdownMenuItem(
+                value: d,
+                child: Text(d.name ?? "Unknown"),
+              )).toList(),
+              onChanged: (dev) async {
+                if (dev != null) {
+                  await sensorManager.connectToDevice(dev, isHRM: true);
+                  setState(() {});
+                }
               },
             ),
-          ),
-        ],
+            DropdownButton<BluetoothDevice>(
+              hint: const Text("Select Power/Cadence"),
+              items: sensorManager.devices.map((d) => DropdownMenuItem(
+                value: d,
+                child: Text(d.name ?? "Unknown"),
+              )).toList(),
+              onChanged: (dev) async {
+                if (dev != null) {
+                  await sensorManager.connectToDevice(dev, isHRM: false);
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
