@@ -9,12 +9,10 @@ workflows:
         CERTIFICATE_PATH: /path/to/AuthKey_CAM9PCSW27.p8
     scripts:
       - name: Install dependencies
-        script: |
-          flutter pub get
-      - name: Build iOS
-        script: |
-          flutter build ios --release --no-codesign
+        script: flutter pub get
+      - name: Build IPA
+        script: flutter build ipa --release --export-options-plist=ios/Runner/ExportOptions.plist
     publishing:
       app_store_connect:
         apple_id: kornaus@hotmail.com
-        team_id: GoldilocksAI
+        team_id: <your_team_id>
