@@ -1,25 +1,21 @@
-name: cadence_coach
-description: A cadence optimizer and workout tracker app.
-version: 1.0.0+32
+name: flutter_application_1
+description: Cadence optimizer BLE v1.0.49+49, Codemagic ready
+publish_to: 'none'
+version: 1.0.49+49
 
 environment:
-  sdk: ">=3.10.0 <4.0.0"
-  flutter: ">=3.16.0"
+  sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  rxdart: ^0.28.0
-  flutter_blue_plus: ^2.0.2   # Updated 2.x stable version
-  geolocator: 14.0.1          # Latest compatible with iOS 13+
-  path_provider: ^2.1.5        # Downgraded to resolve previous version issues
-  intl: ^0.20.2                # Latest formatting package
-  package_info_plus: ^9.0.0    # Optional, latest
+  flutter_blue_plus: ^2.0.2
+  path_provider: ^2.0.14
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true
