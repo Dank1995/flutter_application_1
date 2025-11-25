@@ -1,31 +1,36 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
-    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
   <string>CadenceCoach</string>
+
   <key>CFBundleDisplayName</key>
   <string>CadenceCoach</string>
+
   <key>CFBundleIdentifier</key>
-  <string>com.example.cadencecoach</string>
+  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
   <key>CFBundleVersion</key>
-  <string>1.0.0</string>
+  <string>54</string>
+
   <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
+  <string>1.0.54</string>
 
   <key>NSBluetoothAlwaysUsageDescription</key>
   <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
+  
   <key>NSBluetoothPeripheralUsageDescription</key>
   <string>This app communicates with your cycling sensors via Bluetooth.</string>
 
   <key>UIBackgroundModes</key>
   <array>
-    <string>bluetooth‑central</string>
+    <string>bluetooth-central</string>
   </array>
 
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>Location is used to track ride pace and distance.</string>
+
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
   <string>Location is used in background to track ride metrics.</string>
 
