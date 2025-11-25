@@ -3,68 +3,41 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>$(DEVELOPMENT_LANGUAGE)</string>
-    <key>CFBundleDisplayName</key>
-    <string>Cadence Coach</string>
-    <key>CFBundleExecutable</key>
-    <string>$(EXECUTABLE_NAME)</string>
-    <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-    <key>CFBundleName</key>
-    <string>cadence_coach</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
-    <key>CFBundleVersion</key>
-    <string>12</string> <!-- bumped build number -->
-    <key>LSRequiresIPhoneOS</key>
-    <true/>
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-    <key>UIMainStoryboardFile</key>
-    <string>Main</string>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-    <key>UISupportedInterfaceOrientations~ipad</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-    <key>CADisableMinimumFrameDurationOnPhone</key>
-    <true/>
-    <key>UIApplicationSupportsIndirectInputEvents</key>
-    <true/>
+  <!-- App identity -->
+  <key>CFBundleName</key>
+  <string>CadenceCoach</string>
+  <key>CFBundleDisplayName</key>
+  <string>CadenceCoach</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.yourcompany.cadencecoach</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>26</string>
+  <key>CFBundleExecutable</key>
+  <string>App</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>MinimumOSVersion</key>
+  <string>13.0</string>
 
-    <!-- Privacy usage descriptions -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app uses Bluetooth to connect to cadence sensors and track workout performance.</string>
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>This app uses Bluetooth to connect to workout sensors.</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app uses location data to calculate pace and distance during workouts.</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>This app uses location data in the background to track workouts.</string>
+  <!-- Permissions -->
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>This app needs Bluetooth access to connect to your cycling sensors.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>This app uses Bluetooth to connect to cycling devices.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>We use your location to calculate pace and distance.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>We use your location to calculate pace and distance even in the background.</string>
 
-    <!-- Encryption compliance -->
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
-
-    <!-- Background modes -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>
-        <string>location</string>
-    </array>
+  <!-- Background modes for location & Bluetooth -->
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>bluetooth-central</string>
+    <string>location</string>
+  </array>
 </dict>
 </plist>
-
