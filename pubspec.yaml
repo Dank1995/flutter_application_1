@@ -1,6 +1,6 @@
 name: cadence_coach
 description: A cycling cadence coach with efficiency optimizer and visual alerts
-version: 60.0.0+60   # version 60
+version: 61.0.0+61  # Version 61
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -8,10 +8,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: ^2.0.5
+  flutter_blue_plus: ^2.0.2   # valid stable version
   path_provider: ^2.0.15
   csv: ^5.0.0
-  fl_chart: ^0.60.0   # for live charts
+  fl_chart: ^0.60.0
 
 dev_dependencies:
   flutter_test:
