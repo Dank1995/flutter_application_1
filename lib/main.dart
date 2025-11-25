@@ -1,168 +1,142 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import 'package:intl/intl.dart';
 
 void main() {
-  runApp(const CadenceCoachApp());
+  runApp(CadenceCoachApp());
 }
 
 class CadenceCoachApp extends StatelessWidget {
-  const CadenceCoachApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Cadence Coach',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const WorkoutScreen(),
+      home: CadenceHomePage(),
     );
   }
 }
 
-class WorkoutScreen extends StatefulWidget {
-  const WorkoutScreen({super.key});
-
+class CadenceHomePage extends StatefulWidget {
   @override
-  State<WorkoutScreen> createState() => _WorkoutScreenState();
+  _CadenceHomePageState createState() => _CadenceHomePageState();
 }
 
-class _WorkoutScreenState extends State<WorkoutScreen> {
+class _CadenceHomePageState extends State<CadenceHomePage> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+  StreamSubscription? scanSubscription;
   BluetoothDevice? connectedDevice;
-  StreamSubscription<ScanResult>? scanSubscription;
-  StreamSubscription<Position>? positionStream;
-
-  int cadence = 0;
-  int power = 0;
-  int heartRate = 0;
-  double efficiency = 0.0;
-  int optimalCadence = 0;
-  double pace = 0.0;
-  double distance = 0.0;
-
-  final optimizer = CadenceOptimizerAI();
+  List<BluetoothDevice> devicesList = [];
+  Position? currentPosition;
 
   @override
   void initState() {
     super.initState();
+    _initLocation();
     _startBluetoothScan();
-    _startLocationTracking();
-  }
-
-  void _startBluetoothScan() {
-    // Start scanning and listen for devices
-    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
-      (ScanResult r) async {
-        if (connectedDevice == null) {
-          connectedDevice = r.device;
-          await connectedDevice!.connect(timeout: const Duration(seconds: 10), autoConnect: false, 
-            onError: (e) => print("Connect error: $e"));
-          await flutterBlue.stopScan();
-        }
-      },
-      onDone: () => scanSubscription?.cancel(),
-      onError: (e) => print("Scan error: $e"),
-    );
-  }
-
-  void _startLocationTracking() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-
-    positionStream = Geolocator.getPositionStream().listen((Position pos) {
-      setState(() {
-        pace = pos.speed; // m/s
-        distance += pos.speed; // simplistic accumulation
-      });
-    });
-  }
-
-  void _updateMetrics() {
-    efficiency = optimizer.calculateEfficiency(cadence, power, heartRate);
-    optimalCadence = optimizer.predictOptimalCadence(power, heartRate);
-    _logData();
-  }
-
-  Future<void> _logData() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/ride_data.csv');
-    final sink = file.openWrite(mode: FileMode.append);
-    final timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-    sink.writeln('$timestamp,$cadence,$power,$heartRate,$efficiency,$optimalCadence,$pace,$distance');
-    await sink.flush();
-    await sink.close();
   }
 
   @override
   void dispose() {
     scanSubscription?.cancel();
-    positionStream?.cancel();
+    connectedDevice?.disconnect();
     super.dispose();
+  }
+
+  Future<void> _initLocation() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return Future.error('Location services are disabled.');
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
+  }
+
+  void _startBluetoothScan() async {
+    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
+      (scanResult) async {
+        if (!devicesList.contains(scanResult.device)) {
+          setState(() => devicesList.add(scanResult.device));
+        }
+
+        // Auto-connect to first available device
+        if (connectedDevice == null) {
+          connectedDevice = scanResult.device;
+          try {
+            await connectedDevice!.connect(
+              autoConnect: false,
+              timeout: const Duration(seconds: 10),
+            );
+            await scanSubscription?.cancel();
+          } catch (e) {
+            print('Connection error: $e');
+          }
+        }
+      },
+      onDone: () => print('Scan completed'),
+      onError: (e) => print('Scan error: $e'),
+    );
+  }
+
+  Future<void> logRideData() async {
+    final directory = await getApplicationDocumentsDirectory();
+    final path = '${directory.path}/ride_log.csv';
+    final file = File(path);
+
+    final now = DateTime.now();
+    final formattedDate = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
+    final latitude = currentPosition?.latitude ?? 0.0;
+    final longitude = currentPosition?.longitude ?? 0.0;
+
+    final line = '$formattedDate,$latitude,$longitude\n';
+    await file.writeAsString(line, mode: FileMode.append);
+    print('Logged: $line');
   }
 
   @override
   Widget build(BuildContext context) {
-    _updateMetrics();
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadence Coach')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text('Cadence: $cadence RPM'),
-            Text('Power: $power W'),
-            Text('Heart Rate: $heartRate BPM'),
-            Text('Efficiency: ${efficiency.toStringAsFixed(2)} W/BPM'),
-            Text('Optimal Cadence: $optimalCadence RPM'),
-            Text('Pace: ${pace.toStringAsFixed(2)} m/s'),
-            Text('Distance: ${distance.toStringAsFixed(2)} m'),
-            const SizedBox(height: 20),
-            Text(
-              cadence < optimalCadence - 5
-                  ? 'Shift to higher gear'
-                  : cadence > optimalCadence + 5
-                      ? 'Shift to lower gear'
-                      : 'Cadence optimal',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      appBar: AppBar(title: Text('Cadence Coach')),
+      body: Column(
+        children: [
+          ElevatedButton(
+            onPressed: _startBluetoothScan,
+            child: Text('Scan Bluetooth Devices'),
+          ),
+          ElevatedButton(
+            onPressed: logRideData,
+            child: Text('Log Ride Data'),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: devicesList.length,
+              itemBuilder: (context, index) {
+                final device = devicesList[index];
+                return ListTile(
+                  title: Text(device.name.isEmpty ? 'Unknown Device' : device.name),
+                  subtitle: Text(device.id.id),
+                  trailing: connectedDevice?.id == device.id
+                      ? Icon(Icons.bluetooth_connected)
+                      : null,
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
-  }
-}
-
-class CadenceOptimizerAI {
-  final Map<String, double> efficiencyMap = {};
-
-  double calculateEfficiency(int cadence, int power, int heartRate) {
-    if (heartRate == 0) return 0.0;
-    final eff = power / heartRate;
-    final key = '${cadence ~/ 5}_${power ~/ 50}';
-    efficiencyMap[key] = (efficiencyMap[key] ?? eff + eff) / 2;
-    return eff;
-  }
-
-  int predictOptimalCadence(int power, int heartRate) {
-    if (efficiencyMap.isEmpty) return 90;
-    double bestEff = 0.0;
-    int bestCadence = 90;
-    efficiencyMap.forEach((key, eff) {
-      if (eff > bestEff) {
-        bestEff = eff;
-        bestCadence = int.parse(key.split('_')[0]) * 5;
-      }
-    });
-    return bestCadence;
   }
 }
