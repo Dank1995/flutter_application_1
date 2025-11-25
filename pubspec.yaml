@@ -1,6 +1,6 @@
 name: cadence_coach
 description: A cadence optimizer and workout tracker app.
-version: 1.0.0+22   # <-- bumped build number
+version: 1.0.0+23   # <-- bumped build number
 
 environment:
   sdk: '^3.10.0'
@@ -22,4 +22,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
