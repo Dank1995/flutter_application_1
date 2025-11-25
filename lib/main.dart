@@ -32,8 +32,8 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription<ScanResult>? scanSubscription;
   BluetoothDevice? connectedDevice;
+  StreamSubscription<ScanResult>? scanSubscription;
 
   int cadence = 0;
   int power = 0;
@@ -54,23 +54,18 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _startBluetoothScan() {
-    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
-      (scanResult) async {
+    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen((results) async {
+      for (ScanResult r in results) {
         if (connectedDevice == null) {
-          connectedDevice = scanResult.device;
-          try {
-            await connectedDevice!.connect(
-              timeout: const Duration(seconds: 10),
-              license: 'YourAppLicenseHere', // required for 2.x
-            );
-            await scanSubscription?.cancel();
-          } catch (e) {
-            print('Error connecting: $e');
-          }
+          connectedDevice = r.device;
+          await connectedDevice!.connect(
+            timeout: const Duration(seconds: 10),
+            // license parameter is optional if not using it
+          );
+          await flutterBlue.stopScan();
         }
-      },
-      onDone: () => print('Scan complete'),
-    );
+      }
+    });
   }
 
   void _startLocationTracking() async {
@@ -85,8 +80,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     positionStream = Geolocator.getPositionStream().listen((Position pos) {
       setState(() {
-        pace = pos.speed; 
-        distance += pos.speed; 
+        pace = pos.speed;
+        distance += pos.speed;
       });
     });
   }
@@ -102,16 +97,15 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     final file = File('${dir.path}/ride_data.csv');
     final sink = file.openWrite(mode: FileMode.append);
     final timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-    sink.writeln(
-        '$timestamp,$cadence,$power,$heartRate,$efficiency,$optimalCadence,$pace,$distance');
+    sink.writeln('$timestamp,$cadence,$power,$heartRate,$efficiency,$optimalCadence,$pace,$distance');
     await sink.flush();
     await sink.close();
   }
 
   @override
   void dispose() {
-    positionStream?.cancel();
     scanSubscription?.cancel();
+    positionStream?.cancel();
     super.dispose();
   }
 
