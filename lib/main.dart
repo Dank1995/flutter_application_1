@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 void main() {
   runApp(const MyApp());
@@ -15,110 +15,102 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BLE Cadence Coach Optimizer',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const Dashboard(),
+      title: 'Cadence Coach',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: const MyHomePage(),
     );
   }
 }
 
-class Dashboard extends StatefulWidget {
-  const Dashboard({super.key});
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
 
   @override
-  State<Dashboard> createState() => _DashboardState();
+  State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _DashboardState extends State<Dashboard> {
+class _MyHomePageState extends State<MyHomePage> {
+  late StreamSubscription<List<ScanResult>> scanSub;
   int cadence = 0;
   int power = 0;
   int hr = 0;
 
-  List<List<dynamic>> csvData = [
-    ['Timestamp', 'Cadence', 'Power', 'HR']
+  final List<List<dynamic>> csvData = [
+    ["Timestamp", "Cadence", "Power", "HR"]
   ];
 
-  StreamSubscription<List<ScanResult>>? scanSub;
-  Timer? _optimizerTimer;
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-
   @override
-  void initState() {
-    super.initState();
-    startScan();
-    _optimizerTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      applyOptimizer();
-    });
+  void dispose() {
+    scanSub.cancel();
+    super.dispose();
   }
 
-  void startScan() async {
-    await flutterBlue.startScan(timeout: const Duration(seconds: 5));
-    scanSub = flutterBlue.scanResults.listen((results) {
+  void startScanning() {
+    // Listen to static scanResults stream
+    scanSub = FlutterBluePlus.scanResults.listen((results) {
       for (var result in results) {
         setState(() {
           cadence = 80 + (result.rssi % 10).toInt();
           power = 150 + (result.rssi % 20).toInt();
           hr = 120 + (result.rssi % 15).toInt();
-        });
 
-        csvData.add([
-          DateTime.now().toIso8601String(),
-          cadence,
-          power,
-          hr
-        ]);
+          csvData.add([
+            DateTime.now().toIso8601String(),
+            cadence,
+            power,
+            hr
+          ]);
+        });
       }
     });
+
+    // Start scanning (static method)
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
   }
 
-  void stopScan() async {
-    await flutterBlue.stopScan();
-    await scanSub?.cancel();
-  }
-
-  void applyOptimizer() {
-    if (csvData.length > 3) {
-      int last = csvData.length - 1;
-      setState(() {
-        cadence = ((csvData[last][1] + csvData[last - 1][1] + csvData[last - 2][1]) ~/ 3).toInt();
-        power = ((csvData[last][2] + csvData[last - 1][2] + csvData[last - 2][2]) ~/ 3).toInt();
-        hr = ((csvData[last][3] + csvData[last - 1][3] + csvData[last - 2][3]) ~/ 3).toInt();
-      });
-    }
+  void stopScanning() async {
+    await FlutterBluePlus.stopScan();
+    await scanSub.cancel();
   }
 
   Future<void> exportCsv() async {
-    String csvString = const ListToCsvConverter().convert(csvData);
+    final csvString = const ListToCsvConverter().convert(csvData);
     final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/session_${DateTime.now().millisecondsSinceEpoch}.csv';
+    final path = '${directory.path}/cadence_data.csv';
     final file = File(path);
     await file.writeAsString(csvString);
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV exported: $path')));
-  }
-
-  @override
-  void dispose() {
-    stopScan();
-    _optimizerTimer?.cancel();
-    super.dispose();
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('CSV saved at $path')));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('BLE Cadence Coach Optimizer')),
+      appBar: AppBar(
+        title: const Text('Cadence Coach'),
+      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('Cadence: $cadence rpm', style: const TextStyle(fontSize: 22)),
-            Text('Power: $power W', style: const TextStyle(fontSize: 22)),
-            Text('Heart Rate: $hr bpm', style: const TextStyle(fontSize: 22)),
+            Text('Cadence: $cadence rpm'),
+            Text('Power: $power W'),
+            Text('Heart Rate: $hr bpm'),
             const SizedBox(height: 20),
             ElevatedButton(
-                onPressed: exportCsv,
-                child: const Text('Export CSV')),
+              onPressed: startScanning,
+              child: const Text('Start Scan'),
+            ),
+            ElevatedButton(
+              onPressed: stopScanning,
+              child: const Text('Stop Scan'),
+            ),
+            ElevatedButton(
+              onPressed: exportCsv,
+              child: const Text('Export CSV'),
+            ),
           ],
         ),
       ),
