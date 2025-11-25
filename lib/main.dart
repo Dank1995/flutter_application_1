@@ -10,9 +10,6 @@ void main() {
   runApp(const MyApp());
 }
 
-// -----------------------------
-// App Scaffold
-// -----------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
@@ -25,9 +22,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// -----------------------------
-// Home Page
-// -----------------------------
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
   @override
@@ -35,8 +29,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription<List<ScanResult>>? scanSub;
+  final FlutterBluePlus flutterBlue = FlutterBluePlus();
+  StreamSubscription? scanSubscription;
   BluetoothDevice? cadenceDevice;
   BluetoothDevice? hrDevice;
 
@@ -59,36 +53,31 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
-    scanSub?.cancel();
+    scanSubscription?.cancel();
     timer?.cancel();
     super.dispose();
   }
 
   // -----------------------------
-  // BLE Scan and Connect
+  // Scan BLE Devices
   // -----------------------------
   void startScanning() {
-    scanSub = flutterBlue.scanResults.listen((results) {
-      for (var r in results) {
-        // Example: pick first cadence/HR device by name
-        if (r.device.name.contains('Cadence') && cadenceDevice == null) {
-          cadenceDevice = r.device;
-        }
-        if (r.device.name.contains('HR') && hrDevice == null) {
-          hrDevice = r.device;
-        }
+    scanSubscription = flutterBlue.scan().listen((scanResult) {
+      final device = scanResult.device;
+      if (device.name.contains('Cadence') && cadenceDevice == null) {
+        cadenceDevice = device;
+      }
+      if (device.name.contains('HR') && hrDevice == null) {
+        hrDevice = device;
       }
 
-      // Mock random metrics while scanning
+      // Mock metrics while scanning
       int cadence = 70 + random.nextInt(40);
       int power = 100 + random.nextInt(150);
       int hr = 120 + random.nextInt(40);
       updateMetrics(cadence, power, hr);
     });
 
-    flutterBlue.startScan(timeout: const Duration(seconds: 5));
-
-    // Timer to log ride every second
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
@@ -97,22 +86,19 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> stopScanning() async {
     await flutterBlue.stopScan();
-    await scanSub?.cancel();
+    await scanSubscription?.cancel();
     timer?.cancel();
   }
 
   Future<void> connectDevices() async {
     if (cadenceDevice != null) {
-      await cadenceDevice!.connect(license: License('your_license_here'));
+      await cadenceDevice!.connect(license: License.unknown); // Use enum
     }
     if (hrDevice != null) {
-      await hrDevice!.connect(license: License('your_license_here'));
+      await hrDevice!.connect(license: License.unknown);
     }
   }
 
-  // -----------------------------
-  // Metrics & CSV Logging
-  // -----------------------------
   void updateMetrics(int cadence, int power, int hr) {
     optimizer.updateSensors(cadence, power, hr);
     var result = optimizer.shiftPrompt();
@@ -149,9 +135,6 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  // -----------------------------
-  // UI
-  // -----------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
