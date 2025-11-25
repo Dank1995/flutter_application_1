@@ -11,6 +11,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -29,8 +30,8 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription? scanSub;
+  final FlutterBluePlus flutterBlue = FlutterBluePlus(); // singleton
+  StreamSubscription<List<ScanResult>>? scanSub;
 
   int cadence = 0;
   int power = 0;
@@ -52,33 +53,39 @@ class _DashboardState extends State<Dashboard> {
   }
 
   void startScan() {
-    scanSub = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen((result) {
-      setState(() {
-        // Convert RSSI to raw int values for demo purposes
-        cadence = 80 + (result.rssi % 10).toInt();
-        power = 150 + (result.rssi % 20).toInt();
-        hr = 120 + (result.rssi % 15).toInt();
-      });
+    flutterBlue.startScan(timeout: const Duration(seconds: 5));
+    scanSub = flutterBlue.scanResults.listen((results) {
+      for (var result in results) {
+        setState(() {
+          cadence = 80 + (result.rssi % 10).toInt();
+          power = 150 + (result.rssi % 20).toInt();
+          hr = 120 + (result.rssi % 15).toInt();
+        });
 
-      // Save to CSV
-      csvData.add([DateTime.now().toIso8601String(), cadence, power, hr]);
+        csvData.add([
+          DateTime.now().toIso8601String(),
+          cadence,
+          power,
+          hr
+        ]);
+      }
     });
   }
 
   void stopScan() {
+    flutterBlue.stopScan();
     scanSub?.cancel();
   }
 
   void applyOptimizer() {
-    setState(() {
-      // Simple smoothing: moving average of last 3 entries
-      if (csvData.length > 3) {
-        int last = csvData.length - 1;
+    if (csvData.length > 3) {
+      int last = csvData.length - 1;
+      setState(() {
         cadence = ((csvData[last][1] + csvData[last-1][1] + csvData[last-2][1]) ~/ 3).toInt();
         power = ((csvData[last][2] + csvData[last-1][2] + csvData[last-2][2]) ~/ 3).toInt();
         hr = ((csvData[last][3] + csvData[last-1][3] + csvData[last-2][3]) ~/ 3).toInt();
-      }
-    });
+      });
+    }
   }
 
   Future<void> exportCsv() async {
@@ -87,12 +94,13 @@ class _DashboardState extends State<Dashboard> {
     final path = '${directory.path}/session_${DateTime.now().millisecondsSinceEpoch}.csv';
     final file = File(path);
     await file.writeAsString(csvString);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('CSV exported: $path')));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CSV exported: $path')));
   }
 
   @override
   void dispose() {
-    scanSub?.cancel();
+    stopScan();
     _optimizerTimer?.cancel();
     super.dispose();
   }
@@ -109,7 +117,9 @@ class _DashboardState extends State<Dashboard> {
             Text('Power: $power W', style: const TextStyle(fontSize: 22)),
             Text('Heart Rate: $hr bpm', style: const TextStyle(fontSize: 22)),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
+            ElevatedButton(
+                onPressed: exportCsv,
+                child: const Text('Export CSV')),
           ],
         ),
       ),
