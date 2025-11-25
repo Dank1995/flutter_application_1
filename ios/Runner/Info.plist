@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
@@ -13,40 +12,14 @@
   <string>1.0.0</string>
   <key>CFBundleShortVersionString</key>
   <string>1.0</string>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleExecutable</key>
-  <string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
   <key>MinimumOSVersion</key>
   <string>13.0</string>
 
-  <!-- Location permissions -->
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>This app needs access to your location to track your ride pace and distance.</string>
-  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-  <string>This app needs access to your location to track your ride pace and distance even in background.</string>
-  <key>NSLocationAlwaysUsageDescription</key>
-  <string>This app needs access to your location to track your ride pace and distance.</string>
-
-  <!-- Bluetooth permissions -->
+  <string>Access to location is needed to track cycling metrics.</string>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
+  <string>Connect to cadence and HR sensors via Bluetooth.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
-
-  <key>UISupportedInterfaceOrientations</key>
-  <array>
-    <string>UIInterfaceOrientationPortrait</string>
-    <string>UIInterfaceOrientationLandscapeLeft</string>
-    <string>UIInterfaceOrientationLandscapeRight</string>
-  </array>
-  <key>UIRequiredDeviceCapabilities</key>
-  <array>
-    <string>armv7</string>
-  </array>
+  <string>Connect to cadence and HR sensors via Bluetooth.</string>
 </dict>
 </plist>

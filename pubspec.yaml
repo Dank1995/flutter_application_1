@@ -12,7 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   rxdart: ^0.28.0
   flutter_blue_plus: ^2.0.2   # Updated 2.x stable version
-  geolocator: ^14.0.2          # Latest compatible with iOS 13+
+  geolocator: 14.0.1          # Latest compatible with iOS 13+
   path_provider: ^2.1.5        # Downgraded to resolve previous version issues
   intl: ^0.20.2                # Latest formatting package
   package_info_plus: ^9.0.0    # Optional, latest
