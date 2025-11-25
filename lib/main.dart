@@ -32,8 +32,8 @@ class WorkoutScreen extends StatefulWidget {
 
 class _WorkoutScreenState extends State<WorkoutScreen> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  BluetoothDevice? connectedDevice;
   StreamSubscription<ScanResult>? scanSubscription;
+  BluetoothDevice? connectedDevice;
 
   int cadence = 0;
   int power = 0;
@@ -53,22 +53,23 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     _startLocationTracking();
   }
 
-  void _startBluetoothScan() async {
-    // Start scanning
+  void _startBluetoothScan() {
     scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
       (scanResult) async {
         if (connectedDevice == null) {
           connectedDevice = scanResult.device;
           try {
-            await connectedDevice!.connect(timeout: const Duration(seconds: 10));
-            await flutterBlue.stopScan();
-            scanSubscription?.cancel();
+            await connectedDevice!.connect(
+              timeout: const Duration(seconds: 10),
+              license: 'YourAppLicenseHere', // required for 2.x
+            );
+            await scanSubscription?.cancel();
           } catch (e) {
-            debugPrint('Connection error: $e');
+            print('Error connecting: $e');
           }
         }
       },
-      onError: (e) => debugPrint('Scan error: $e'),
+      onDone: () => print('Scan complete'),
     );
   }
 
@@ -82,15 +83,10 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
       if (permission == LocationPermission.denied) return;
     }
 
-    positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 1,
-      ),
-    ).listen((Position pos) {
+    positionStream = Geolocator.getPositionStream().listen((Position pos) {
       setState(() {
-        pace = pos.speed; // m/s
-        distance += pos.speed; // simplistic accumulation
+        pace = pos.speed; 
+        distance += pos.speed; 
       });
     });
   }
@@ -102,24 +98,20 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _logData() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/ride_data.csv');
-      final sink = file.openWrite(mode: FileMode.append);
-      final timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
-      sink.writeln('$timestamp,$cadence,$power,$heartRate,$efficiency,$optimalCadence,$pace,$distance');
-      await sink.flush();
-      await sink.close();
-    } catch (e) {
-      debugPrint('Logging error: $e');
-    }
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/ride_data.csv');
+    final sink = file.openWrite(mode: FileMode.append);
+    final timestamp = DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now());
+    sink.writeln(
+        '$timestamp,$cadence,$power,$heartRate,$efficiency,$optimalCadence,$pace,$distance');
+    await sink.flush();
+    await sink.close();
   }
 
   @override
   void dispose() {
     positionStream?.cancel();
     scanSubscription?.cancel();
-    connectedDevice?.disconnect();
     super.dispose();
   }
 

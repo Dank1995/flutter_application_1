@@ -1,20 +1,20 @@
 name: cadence_coach
 description: A cadence optimizer and workout tracker app.
-version: 1.0.0+27
+version: 1.0.0+28
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
-  flutter: '>=3.16.0'
+  flutter: '>=3.26.0'
 
 dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  flutter_blue_plus: ^2.0.2   # compatible with Flutter 3.26+
+  geolocator: ^14.0.2
+  path_provider: ^2.1.11
+  intl: ^0.20.2
   rxdart: ^0.28.0
-  flutter_blue_plus: ^2.0.2        # Stable latest for Flutter 3.26
-  geolocator: ^14.0.2               # Stable latest for Flutter 3.26
-  path_provider: ^2.1.5             # Compatible version
-  intl: ^0.20.2                     # Latest stable
 
 dev_dependencies:
   flutter_test:
