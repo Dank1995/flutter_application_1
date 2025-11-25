@@ -1,7 +1,7 @@
 name: cadence_coach
 description: BLE Cadence Coach Optimizer
 publish_to: "none"
-version: 1.0.55+55
+version: 1.0.57+57
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
