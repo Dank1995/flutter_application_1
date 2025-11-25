@@ -1,47 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- App info -->
-    <key>CFBundleName</key>
-    <string>CadenceCoach</string>
-    <key>CFBundleDisplayName</key>
-    <string>Cadence Coach</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.example.cadence_coach</string>
-    <key>CFBundleVersion</key>
-    <string>1.0.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+  <key>CFBundleName</key>
+  <string>CadenceCoach</string>
+  <key>CFBundleDisplayName</key>
+  <string>CadenceCoach</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.example.cadencecoach</string>
+  <key>CFBundleVersion</key>
+  <string>1.0.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.0</string>
 
-    <!-- Required for Bluetooth Low Energy (BLE) -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app uses Bluetooth to connect to your HR and Power/Cadence sensors.</string>
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>This app communicates with your cycling sensors via Bluetooth.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>This app communicates with your cycling sensors via Bluetooth.</string>
 
-    <!-- Background Modes: BLE central mode -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>
-        <string>fetch</string>
-    </array>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>bluetooth‑central</string>
+  </array>
 
-    <!-- Required for vibration (no explicit permission, handled by iOS) -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Location is used to track ride pace and distance.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>Location is used in background to track ride metrics.</string>
 
-    <!-- Optional: location needed if using geolocator for speed/position -->
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location is used for tracking ride routes and metrics.</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Location is used for tracking ride routes and metrics in the background.</string>
-
-    <!-- Other standard iOS settings -->
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-        <string>arm64</string>
-    </array>
+  <key>UIRequiredDeviceCapabilities</key>
+  <array>
+    <string>arm64</string>
+  </array>
 </dict>
 </plist>
