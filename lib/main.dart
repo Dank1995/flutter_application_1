@@ -38,8 +38,9 @@ class _DashboardState extends State<Dashboard> {
     ['Timestamp', 'Cadence', 'Power', 'HR']
   ];
 
-  StreamSubscription<ScanResult>? scanSub;
+  StreamSubscription<List<ScanResult>>? scanSub;
   Timer? _optimizerTimer;
+  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
 
   @override
   void initState() {
@@ -50,36 +51,38 @@ class _DashboardState extends State<Dashboard> {
     });
   }
 
-  void startScan() {
-    scanSub = FlutterBluePlus.instance
-        .scan(timeout: const Duration(seconds: 5))
-        .listen((result) {
-      setState(() {
-        cadence = 80 + (result.rssi % 10).toInt();
-        power = 150 + (result.rssi % 20).toInt();
-        hr = 120 + (result.rssi % 15).toInt();
-      });
+  void startScan() async {
+    await flutterBlue.startScan(timeout: const Duration(seconds: 5));
+    scanSub = flutterBlue.scanResults.listen((results) {
+      for (var result in results) {
+        setState(() {
+          cadence = 80 + (result.rssi % 10).toInt();
+          power = 150 + (result.rssi % 20).toInt();
+          hr = 120 + (result.rssi % 15).toInt();
+        });
 
-      csvData.add([
-        DateTime.now().toIso8601String(),
-        cadence,
-        power,
-        hr
-      ]);
+        csvData.add([
+          DateTime.now().toIso8601String(),
+          cadence,
+          power,
+          hr
+        ]);
+      }
     });
   }
 
-  void stopScan() {
-    scanSub?.cancel();
+  void stopScan() async {
+    await flutterBlue.stopScan();
+    await scanSub?.cancel();
   }
 
   void applyOptimizer() {
     if (csvData.length > 3) {
       int last = csvData.length - 1;
       setState(() {
-        cadence = ((csvData[last][1] + csvData[last-1][1] + csvData[last-2][1]) ~/ 3).toInt();
-        power = ((csvData[last][2] + csvData[last-1][2] + csvData[last-2][2]) ~/ 3).toInt();
-        hr = ((csvData[last][3] + csvData[last-1][3] + csvData[last-2][3]) ~/ 3).toInt();
+        cadence = ((csvData[last][1] + csvData[last - 1][1] + csvData[last - 2][1]) ~/ 3).toInt();
+        power = ((csvData[last][2] + csvData[last - 1][2] + csvData[last - 2][2]) ~/ 3).toInt();
+        hr = ((csvData[last][3] + csvData[last - 1][3] + csvData[last - 2][3]) ~/ 3).toInt();
       });
     }
   }
