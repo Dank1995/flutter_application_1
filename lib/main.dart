@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -35,7 +34,12 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late StreamSubscription<List<ScanResult>> scanSub;
+  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+
+  BluetoothDevice? cadenceDevice;
+  BluetoothDevice? hrDevice;
+  BluetoothCharacteristic? cadenceChar;
+  BluetoothCharacteristic? hrChar;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -50,46 +54,97 @@ class _MyHomePageState extends State<MyHomePage> {
   ];
 
   final CadenceOptimizerAI optimizer = CadenceOptimizerAI();
-  final Random random = Random();
   int timeSec = 0;
   Timer? timer;
 
   @override
   void dispose() {
-    scanSub.cancel();
+    cadenceDevice?.disconnect();
+    hrDevice?.disconnect();
     timer?.cancel();
     super.dispose();
   }
 
-  void startScanning() {
-    scanSub = FlutterBluePlus.scanResults.listen((results) {
-      int cadence = 70 + random.nextInt(40);
-      int power = 100 + random.nextInt(150);
-      int hr = 120 + random.nextInt(40);
-      updateMetrics(cadence, power, hr);
-    });
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+  Future<void> startScanning() async {
+    // Start scanning for BLE devices
+    flutterBlue.startScan(timeout: const Duration(seconds: 5));
 
+    flutterBlue.scanResults.listen((results) async {
+      for (var r in results) {
+        // Example: filter by name (replace with your sensor name)
+        if (r.device.name.contains("CadenceSensor") && cadenceDevice == null) {
+          cadenceDevice = r.device;
+          await cadenceDevice!.connect();
+          await discoverCadenceService();
+        }
+        if (r.device.name.contains("HeartRate") && hrDevice == null) {
+          hrDevice = r.device;
+          await hrDevice!.connect();
+          await discoverHRService();
+        }
+      }
+    });
+
+    // Start CSV timer
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
     });
   }
 
-  void stopScanning() async {
-    await FlutterBluePlus.stopScan();
-    await scanSub.cancel();
-    timer?.cancel();
+  Future<void> discoverCadenceService() async {
+    if (cadenceDevice == null) return;
+    var services = await cadenceDevice!.discoverServices();
+    for (var s in services) {
+      for (var c in s.characteristics) {
+        // Replace with actual cadence characteristic UUID
+        if (c.uuid.toString() == "00002a5b-0000-1000-8000-00805f9b34fb") {
+          cadenceChar = c;
+          await cadenceChar!.setNotifyValue(true);
+          cadenceChar!.value.listen((data) {
+            // Convert bytes to cadence value
+            if (data.isNotEmpty) {
+              int cadence = data[0];
+              updateMetrics(cadence: cadence);
+            }
+          });
+        }
+      }
+    }
   }
 
-  void updateMetrics(int cadence, int power, int hr) {
-    optimizer.updateSensors(cadence, power, hr);
+  Future<void> discoverHRService() async {
+    if (hrDevice == null) return;
+    var services = await hrDevice!.discoverServices();
+    for (var s in services) {
+      for (var c in s.characteristics) {
+        // Heart rate characteristic UUID
+        if (c.uuid.toString() == "00002a37-0000-1000-8000-00805f9b34fb") {
+          hrChar = c;
+          await hrChar!.setNotifyValue(true);
+          hrChar!.value.listen((data) {
+            if (data.isNotEmpty) {
+              int hr = data[1]; // first byte may be flags
+              updateMetrics(hr: hr);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  void updateMetrics({int? cadence, int? hr, int? power}) {
+    int newCadence = cadence ?? currentCadence;
+    int newHR = hr ?? currentHR;
+    int newPower = power ?? currentPower;
+
+    optimizer.updateSensors(newCadence, newPower, newHR);
     var result = optimizer.shiftPrompt();
 
     setState(() {
-      currentCadence = cadence;
-      currentPower = power;
-      currentHR = hr;
+      currentCadence = newCadence;
+      currentHR = newHR;
+      currentPower = newPower;
       currentEfficiency = optimizer.currentEfficiency;
       shiftMessage = result["message"];
       shiftAlert = result["alert"];
@@ -131,7 +186,6 @@ class _MyHomePageState extends State<MyHomePage> {
             Text('Heart Rate: $currentHR bpm'),
             Text('Efficiency: ${currentEfficiency.toStringAsFixed(2)}'),
             const SizedBox(height: 20),
-
             Container(
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.symmetric(vertical: 10),
@@ -148,10 +202,15 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
             ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
-            ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
+            ElevatedButton(
+                onPressed: () {
+                  cadenceDevice?.disconnect();
+                  hrDevice?.disconnect();
+                  timer?.cancel();
+                },
+                child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
           ],
         ),
@@ -190,8 +249,8 @@ class CadenceOptimizerAI {
     int powerBucket = (currentPower / 10).round() * 10;
     var cadences = efficiencyMap[powerBucket];
     if (cadences == null || cadences.isEmpty) return 90;
-    var avgEff = cadences.map((k,v) => MapEntry(k, v.reduce((a,b)=>a+b)/v.length));
-    int optimal = avgEff.entries.reduce((a,b)=>a.value>b.value?a:b).key;
+    var avgEff = cadences.map((k, v) => MapEntry(k, v.reduce((a, b) => a + b) / v.length));
+    int optimal = avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
     return optimal;
   }
 
