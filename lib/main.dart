@@ -10,18 +10,24 @@ void main() {
   runApp(const MyApp());
 }
 
+// -----------------------------
+// App Scaffold
+// -----------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'GoldilocksAI',
+      title: 'Cadence Coach',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const MyHomePage(),
     );
   }
 }
 
+// -----------------------------
+// Home Page
+// -----------------------------
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key});
   @override
@@ -29,10 +35,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus();
-  StreamSubscription? scanSubscription;
-  BluetoothDevice? cadenceDevice;
-  BluetoothDevice? hrDevice;
+  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+  StreamSubscription<ScanResult>? scanSubscription;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -51,6 +55,9 @@ class _MyHomePageState extends State<MyHomePage> {
   int timeSec = 0;
   Timer? timer;
 
+  BluetoothDevice? cadenceDevice;
+  BluetoothDevice? hrDevice;
+
   @override
   void dispose() {
     scanSubscription?.cancel();
@@ -58,27 +65,29 @@ class _MyHomePageState extends State<MyHomePage> {
     super.dispose();
   }
 
-  // -----------------------------
-  // Scan BLE Devices
-  // -----------------------------
   void startScanning() {
-    scanSubscription = flutterBlue.scan().listen((scanResult) {
+    // Start BLE scan
+    scanSubscription = flutterBlue.startScan(timeout: const Duration(seconds: 5)).listen((scanResult) {
       final device = scanResult.device;
-      if (device.name.contains('Cadence') && cadenceDevice == null) {
-        cadenceDevice = device;
-      }
-      if (device.name.contains('HR') && hrDevice == null) {
-        hrDevice = device;
-      }
+      print("Found device: ${device.name}");
 
-      // Mock metrics while scanning
+      // Example: select devices by name
+      if (device.name.contains("Cadence") && cadenceDevice == null) {
+        cadenceDevice = device;
+        connectDevice(cadenceDevice!);
+      }
+      if (device.name.contains("HR") && hrDevice == null) {
+        hrDevice = device;
+        connectDevice(hrDevice!);
+      }
+    });
+
+    // Start fake metric timer for UI update
+    timer = Timer.periodic(const Duration(seconds: 1), (_) {
       int cadence = 70 + random.nextInt(40);
       int power = 100 + random.nextInt(150);
       int hr = 120 + random.nextInt(40);
       updateMetrics(cadence, power, hr);
-    });
-
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
     });
@@ -87,15 +96,16 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> stopScanning() async {
     await flutterBlue.stopScan();
     await scanSubscription?.cancel();
+    scanSubscription = null;
     timer?.cancel();
   }
 
-  Future<void> connectDevices() async {
-    if (cadenceDevice != null) {
-      await cadenceDevice!.connect(license: License.unknown); // Use enum
-    }
-    if (hrDevice != null) {
-      await hrDevice!.connect(license: License.unknown);
+  Future<void> connectDevice(BluetoothDevice device) async {
+    try {
+      await device.connect(); // No License param needed in v2.0.2
+      print("Connected to ${device.name}");
+    } catch (e) {
+      print("Failed to connect: $e");
     }
   }
 
@@ -138,7 +148,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('GoldilocksAI')),
+      appBar: AppBar(title: const Text('Cadence Coach')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -168,7 +178,6 @@ class _MyHomePageState extends State<MyHomePage> {
             ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
             ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
-            ElevatedButton(onPressed: connectDevices, child: const Text('Connect Devices')),
           ],
         ),
       ),
