@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -36,10 +37,9 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
 
+  StreamSubscription<List<ScanResult>>? scanSub;
   BluetoothDevice? cadenceDevice;
   BluetoothDevice? hrDevice;
-  BluetoothCharacteristic? cadenceChar;
-  BluetoothCharacteristic? hrChar;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -54,103 +54,87 @@ class _MyHomePageState extends State<MyHomePage> {
   ];
 
   final CadenceOptimizerAI optimizer = CadenceOptimizerAI();
+  final Random random = Random();
   int timeSec = 0;
   Timer? timer;
 
   @override
   void dispose() {
-    cadenceDevice?.disconnect();
-    hrDevice?.disconnect();
+    scanSub?.cancel();
     timer?.cancel();
     super.dispose();
   }
 
-  Future<void> startScanning() async {
-    // Start scanning for BLE devices
+  // -----------------------------
+  // Start BLE scan
+  // -----------------------------
+  void startScanning() {
     flutterBlue.startScan(timeout: const Duration(seconds: 5));
 
-    flutterBlue.scanResults.listen((results) async {
+    scanSub = flutterBlue.scanResults.listen((results) {
       for (var r in results) {
-        // Example: filter by name (replace with your sensor name)
-        if (r.device.name.contains("CadenceSensor") && cadenceDevice == null) {
-          cadenceDevice = r.device;
-          await cadenceDevice!.connect();
-          await discoverCadenceService();
+        // You can filter devices by name or UUID here
+        if (r.device.name.contains("Cadence")) {
+          cadenceDevice ??= r.device;
         }
-        if (r.device.name.contains("HeartRate") && hrDevice == null) {
-          hrDevice = r.device;
-          await hrDevice!.connect();
-          await discoverHRService();
+        if (r.device.name.contains("HR")) {
+          hrDevice ??= r.device;
         }
+
+        int cadence = 70 + random.nextInt(40);
+        int power = 100 + random.nextInt(150);
+        int hr = 120 + random.nextInt(40);
+        updateMetrics(cadence, power, hr);
       }
     });
 
-    // Start CSV timer
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
     });
   }
 
-  Future<void> discoverCadenceService() async {
-    if (cadenceDevice == null) return;
-    var services = await cadenceDevice!.discoverServices();
-    for (var s in services) {
-      for (var c in s.characteristics) {
-        // Replace with actual cadence characteristic UUID
-        if (c.uuid.toString() == "00002a5b-0000-1000-8000-00805f9b34fb") {
-          cadenceChar = c;
-          await cadenceChar!.setNotifyValue(true);
-          cadenceChar!.value.listen((data) {
-            // Convert bytes to cadence value
-            if (data.isNotEmpty) {
-              int cadence = data[0];
-              updateMetrics(cadence: cadence);
-            }
-          });
-        }
-      }
+  // -----------------------------
+  // Stop BLE scan
+  // -----------------------------
+  void stopScanning() async {
+    await flutterBlue.stopScan();
+    await scanSub?.cancel();
+    timer?.cancel();
+  }
+
+  // -----------------------------
+  // Connect to devices
+  // -----------------------------
+  Future<void> connectDevices() async {
+    if (cadenceDevice != null) {
+      await cadenceDevice!.connect(license: ''); // required parameter
+    }
+    if (hrDevice != null) {
+      await hrDevice!.connect(license: '');
     }
   }
 
-  Future<void> discoverHRService() async {
-    if (hrDevice == null) return;
-    var services = await hrDevice!.discoverServices();
-    for (var s in services) {
-      for (var c in s.characteristics) {
-        // Heart rate characteristic UUID
-        if (c.uuid.toString() == "00002a37-0000-1000-8000-00805f9b34fb") {
-          hrChar = c;
-          await hrChar!.setNotifyValue(true);
-          hrChar!.value.listen((data) {
-            if (data.isNotEmpty) {
-              int hr = data[1]; // first byte may be flags
-              updateMetrics(hr: hr);
-            }
-          });
-        }
-      }
-    }
-  }
-
-  void updateMetrics({int? cadence, int? hr, int? power}) {
-    int newCadence = cadence ?? currentCadence;
-    int newHR = hr ?? currentHR;
-    int newPower = power ?? currentPower;
-
-    optimizer.updateSensors(newCadence, newPower, newHR);
+  // -----------------------------
+  // Update metrics
+  // -----------------------------
+  void updateMetrics(int cadence, int power, int hr) {
+    optimizer.updateSensors(cadence, power, hr);
     var result = optimizer.shiftPrompt();
 
     setState(() {
-      currentCadence = newCadence;
-      currentHR = newHR;
-      currentPower = newPower;
+      currentCadence = cadence;
+      currentPower = power;
+      currentHR = hr;
       currentEfficiency = optimizer.currentEfficiency;
       shiftMessage = result["message"];
       shiftAlert = result["alert"];
     });
   }
 
+  // -----------------------------
+  // Log ride data
+  // -----------------------------
   Future<void> logRide() async {
     csvData.add([
       timeSec,
@@ -162,6 +146,9 @@ class _MyHomePageState extends State<MyHomePage> {
     ]);
   }
 
+  // -----------------------------
+  // Export CSV
+  // -----------------------------
   Future<void> exportCsv() async {
     final csvString = const ListToCsvConverter().convert(csvData);
     final directory = await getApplicationDocumentsDirectory();
@@ -204,14 +191,9 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
-            ElevatedButton(
-                onPressed: () {
-                  cadenceDevice?.disconnect();
-                  hrDevice?.disconnect();
-                  timer?.cancel();
-                },
-                child: const Text('Stop Scan')),
+            ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
+            ElevatedButton(onPressed: connectDevices, child: const Text('Connect Devices')),
           ],
         ),
       ),
