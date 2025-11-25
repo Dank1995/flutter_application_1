@@ -1,23 +1,18 @@
 name: cadence_coach
-description: BLE Cadence Coach Optimizer
-publish_to: "none"
-version: 1.0.57+57
+description: A cycling cadence coach with efficiency optimizer and visual alerts
+version: 60.0.0+60   # version 60
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-
-  flutter_blue_plus: 2.0.2
-  path_provider: 2.0.14
-  csv: 5.1.1
+  flutter_blue_plus: ^2.0.5
+  path_provider: ^2.0.15
+  csv: ^5.0.0
+  fl_chart: ^0.60.0   # for live charts
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: 2.0.3
-
-flutter:
-  uses-material-design: true
