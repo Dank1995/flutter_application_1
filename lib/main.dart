@@ -31,7 +31,7 @@ class WorkoutScreen extends StatefulWidget {
 }
 
 class _WorkoutScreenState extends State<WorkoutScreen> {
-  final flutterBlue = FlutterBluePlus.instance;
+  final flutterBlue = FlutterBluePlus.instance; // ✅ correct singleton
   BluetoothDevice? connectedDevice;
 
   int cadence = 0;
