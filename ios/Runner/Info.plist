@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- App identity -->
   <key>CFBundleName</key>
   <string>CadenceCoach</string>
   <key>CFBundleDisplayName</key>
   <string>CadenceCoach</string>
   <key>CFBundleIdentifier</key>
-  <string>com.yourcompany.cadencecoach</string>
+  <string>io.flutter.cadencecoach</string>
+  <key>CFBundleVersion</key>
+  <string>1.0.0</string>
   <key>CFBundleShortVersionString</key>
   <string>1.0</string>
-  <key>CFBundleVersion</key>
-  <string>26</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>App</string>
+  <string>$(EXECUTABLE_NAME)</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key>
@@ -23,21 +23,29 @@
   <key>MinimumOSVersion</key>
   <string>13.0</string>
 
-  <!-- Permissions -->
-  <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>This app needs Bluetooth access to connect to your cycling sensors.</string>
-  <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>This app uses Bluetooth to connect to cycling devices.</string>
+  <!-- Location permissions -->
   <key>NSLocationWhenInUseUsageDescription</key>
-  <string>We use your location to calculate pace and distance.</string>
+  <string>This app needs access to your location to track your ride pace and distance.</string>
   <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-  <string>We use your location to calculate pace and distance even in the background.</string>
+  <string>This app needs access to your location to track your ride pace and distance even in background.</string>
+  <key>NSLocationAlwaysUsageDescription</key>
+  <string>This app needs access to your location to track your ride pace and distance.</string>
 
-  <!-- Background modes for location & Bluetooth -->
-  <key>UIBackgroundModes</key>
+  <!-- Bluetooth permissions -->
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>This app uses Bluetooth to connect to cadence and heart rate sensors.</string>
+
+  <key>UISupportedInterfaceOrientations</key>
   <array>
-    <string>bluetooth-central</string>
-    <string>location</string>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+  </array>
+  <key>UIRequiredDeviceCapabilities</key>
+  <array>
+    <string>armv7</string>
   </array>
 </dict>
 </plist>
