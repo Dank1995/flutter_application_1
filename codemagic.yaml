@@ -1,29 +1,33 @@
-name: cadence_coach
-description: Cadence Coach with BLE and vibration alerts
-publish_to: "none"
-
-environment:
-  sdk: ">=3.0.0 <4.0.0"
-  flutter: ">=3.0.0"
-
-dependencies:
-  flutter:
-    sdk: flutter
-
-  flutter_blue_plus: ^2.0.2
-  vibration: ^1.7.4
-
-  # Compatible versions for Codemagic iOS build
-  geolocator: ^14.0.1        # <- downgrade to avoid conflict with package_info_plus
-  package_info_plus: ^8.3.1  # <- matches geolocator_linux dependency
-  path_provider: ^2.1.5       # <- safe for iOS 13+
-  csv: ^5.0.0
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-
-flutter:
-  uses-material-design: true
-  assets:
-    - assets/
+workflows:
+  ios-deploy:
+    name: iOS Build & Deploy v1.0.48
+    max_build_duration: 60
+    environment:
+      vars:
+        FLUTTER_VERSION: stable
+      flutter: stable
+      xcode: latest
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          flutter pub get
+      - name: Build iOS Release
+        script: |
+          flutter build ios --release --no-codesign
+      - name: Archive & Export
+        script: |
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath $CM_BUILD_DIR/build/Runner.xcarchive archive
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/build/Runner.xcarchive \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath $CM_BUILD_DIR/build/Runner
+    artifacts:
+      - build/Runner/Runner.ipa
+    publishing:
+      app_store_connect:
+        api_key: Encrypted(${APP_STORE_CONNECT_API_KEY})
+        ipa_path: build/Runner/Runner.ipa
+        notify_testers: true

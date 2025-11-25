@@ -1,48 +1,51 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
-import 'dart:math';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';               // for haptic vibration
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:vibration/vibration.dart';             // vibration plugin
-import 'package:geolocator/geolocator.dart';
+import 'package:csv/csv.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cadence Coach v40',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const Dashboard(),
+      title: 'Cadence Optimizer v1.0.48',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: Dashboard(),
     );
   }
 }
 
-class CadenceOptimizerAI {
+// -----------------------------
+// Cadence Optimizer
+// -----------------------------
+class CadenceOptimizer {
   int currentCadence = 0;
   int currentPower = 0;
   int currentHR = 0;
-
+  double currentEfficiency = 0;
   Map<int, Map<int, List<double>>> efficiencyMap = {};
   late File rideFile;
 
-  CadenceOptimizerAI() {
-    _initFile();
+  CadenceOptimizer() {
+    _initLogFile();
   }
 
-  Future<void> _initFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    rideFile = File('${dir.path}/ride_data.csv');
+  Future<void> _initLogFile() async {
+    Directory docDir = await getApplicationDocumentsDirectory();
+    rideFile = File('${docDir.path}/ride_data.csv');
     if (!await rideFile.exists()) {
       await rideFile.writeAsString(
-        'Time,Cadence,Power,HR,Efficiency,OptimalCadence\n',
+        const ListToCsvConverter().convert([
+          ["Time", "Cadence", "Power", "HR", "Efficiency", "OptimalCadence", "W/BPM"]
+        ]) + '\n',
       );
     }
   }
@@ -51,137 +54,124 @@ class CadenceOptimizerAI {
     currentCadence = cadence;
     currentPower = power;
     currentHR = hr;
-
-    double eff = _calculateEfficiency();
-    _learnCadence(power, cadence, eff);
+    currentEfficiency = calculateEfficiency();
+    learnCadence(currentPower, currentCadence, currentEfficiency);
   }
 
-  double _calculateEfficiency() {
-    return (currentHR > 0) ? currentPower / currentHR : 0.0;
+  double calculateEfficiency() {
+    if (currentHR == 0) return 0;
+    return currentPower / currentHR;
   }
 
-  void _learnCadence(int power, int cadence, double efficiency) {
-    final powerBucket = (power / 10).round() * 10;
-    final cadenceBucket = (cadence / 2).round() * 2;
-
+  void learnCadence(int power, int cadence, double efficiency) {
+    int powerBucket = (power / 10).round() * 10;
+    int cadenceBucket = (cadence / 2).round() * 2;
     efficiencyMap.putIfAbsent(powerBucket, () => {});
-    efficiencyMap[powerBucket]!
-        .putIfAbsent(cadenceBucket, () => [])
-        .add(efficiency);
+    efficiencyMap[powerBucket]!.putIfAbsent(cadenceBucket, () => []);
+    efficiencyMap[powerBucket]![cadenceBucket]!.add(efficiency);
   }
 
   int predictOptimalCadence() {
-    final powerBucket = (currentPower / 10).round() * 10;
-    final cadences = efficiencyMap[powerBucket] ?? {};
-    if (cadences.isEmpty) return 90;
-
-    final avgEff = {
-      for (var e in cadences.entries)
-        e.key: e.value.reduce((a, b) => a + b) / e.value.length
-    };
+    int powerBucket = (currentPower / 10).round() * 10;
+    if (!efficiencyMap.containsKey(powerBucket) || efficiencyMap[powerBucket]!.isEmpty) {
+      return 90;
+    }
+    Map<int, double> avgEff = {};
+    efficiencyMap[powerBucket]!.forEach((c, effs) {
+      avgEff[c] = effs.reduce((a, b) => a + b) / effs.length;
+    });
     return avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+  }
+
+  String shiftPrompt() {
+    int optimal = predictOptimalCadence();
+    int diff = currentCadence - optimal;
+    if (diff.abs() > 5) {
+      if (diff > 0) return "Shift to higher gear ($optimal RPM)";
+      return "Shift to lower gear ($optimal RPM)";
+    }
+    return "Cadence optimal ($optimal RPM)";
+  }
+
+  Future<void> logRide(int timeSec) async {
+    int optimal = predictOptimalCadence();
+    await rideFile.writeAsString(
+      ListToCsvConverter().convert([
+            [timeSec, currentCadence, currentPower, currentHR, currentEfficiency.toStringAsFixed(2), optimal, currentEfficiency.toStringAsFixed(2)]
+          ]) +
+          '\n',
+      mode: FileMode.append,
+    );
   }
 }
 
+// -----------------------------
+// Dashboard
+// -----------------------------
 class Dashboard extends StatefulWidget {
-  const Dashboard({super.key});
   @override
-  State<Dashboard> createState() => _DashboardState();
+  _DashboardState createState() => _DashboardState();
 }
 
 class _DashboardState extends State<Dashboard> {
-  final CadenceOptimizerAI optimizer = CadenceOptimizerAI();
+  final CadenceOptimizer optimizer = CadenceOptimizer();
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-
-  List<BluetoothDevice> devices = [];
-  BluetoothDevice? selectedDevice;
-
   StreamSubscription? scanSub;
-  StreamSubscription? notifySub;
+  BluetoothDevice? connectedDevice;
 
-  int currentCadence = 0;
-  int currentPower = 0;
-  int currentHR = 0;
-  int optimalCadence = 90;
+  int cadence = 0;
+  int power = 0;
+  int hr = 0;
+  String prompt = '';
 
   @override
   void initState() {
     super.initState();
-    _startScan();
-  }
-
-  void _startScan() {
-    devices.clear();
-    scanSub = flutterBlue.startScan(timeout: const Duration(seconds: 5)).listen((result) {
-      final device = result.device;
-      if (!devices.contains(device)) {
-        setState(() => devices.add(device));
-      }
-    }, onDone: () {
-      flutterBlue.stopScan();
+    startScan();
+    Timer.periodic(Duration(seconds: 1), (timer) async {
+      // Update optimizer
+      optimizer.updateSensors(cadence, power, hr);
+      await optimizer.logRide(DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      setState(() {
+        prompt = optimizer.shiftPrompt();
+      });
     });
   }
 
-  Future<void> _connectDevice(BluetoothDevice device) async {
-    try {
-      await device.connect(autoConnect: false, timeout: const Duration(seconds: 10));
-      setState(() => selectedDevice = device);
-
-      List<BluetoothService> services = await device.discoverServices();
-      for (var s in services) {
-        for (var c in s.characteristics) {
-          if (c.properties.notify) {
-            await c.setNotifyValue(true);
-            notifySub = c.value.listen((data) {
-              // Example parsing: you’ll adjust based on real sensor specification
-              if (data.length >= 3) {
-                currentPower = data[1] + (data[2] << 8);
-                currentCadence = (data.length > 3) ? data[3] : currentCadence;
-                currentHR = data[1]; // if HR char
-              }
-              setState(() {
-                optimalCadence = optimizer.predictOptimalCadence();
-                optimizer.updateSensors(currentCadence, currentPower, currentHR);
-              });
-
-              if ((currentCadence - optimalCadence).abs() > 5) {
-                Vibration.vibrate(duration: 200);
-              }
-            });
-          }
-        }
+  void startScan() {
+    scanSub = flutterBlue.scan(timeout: Duration(seconds: 5)).listen((scanResult) async {
+      if (scanResult.device.name.contains("HRM") || scanResult.device.name.contains("RS200")) {
+        scanSub?.cancel();
+        await scanResult.device.connect(autoConnect: false, timeout: Duration(seconds: 10));
+        connectedDevice = scanResult.device;
+        // Start notifications if characteristics known
       }
-    } catch (e) {
-      print('Connection error: $e');
-    }
+    });
   }
 
   @override
   void dispose() {
     scanSub?.cancel();
-    notifySub?.cancel();
-    selectedDevice?.disconnect();
+    connectedDevice?.disconnect();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadence Coach v40')),
+      appBar: AppBar(
+        title: Text('Cadence Optimizer v1.0.48'),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            const Text('Select BLE Device'),
-            ...devices.map((d) => ElevatedButton(
-                  onPressed: () => _connectDevice(d),
-                  child: Text(d.name.isNotEmpty ? d.name : d.id.toString()),
-                )),
-            const SizedBox(height: 20),
-            Text('Cadence: $currentCadence RPM'),
-            Text('Power: $currentPower W'),
-            Text('HR: $currentHR bpm'),
-            Text('Optimal Cadence: $optimalCadence RPM'),
+            Text('Cadence: $cadence RPM', style: TextStyle(fontSize: 24)),
+            Text('Power: $power W', style: TextStyle(fontSize: 24)),
+            Text('Heart Rate: $hr BPM', style: TextStyle(fontSize: 24)),
+            SizedBox(height: 20),
+            Text('Prompt:', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text(prompt, style: TextStyle(fontSize: 28, color: Colors.red)),
           ],
         ),
       ),
