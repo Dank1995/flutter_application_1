@@ -34,6 +34,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
   BluetoothDevice? connectedDevice;
   StreamSubscription<ScanResult>? scanSubscription;
+  StreamSubscription<Position>? positionStream;
 
   int cadence = 0;
   int power = 0;
@@ -44,7 +45,6 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   double distance = 0.0;
 
   final optimizer = CadenceOptimizerAI();
-  StreamSubscription<Position>? positionStream;
 
   @override
   void initState() {
@@ -54,18 +54,19 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   void _startBluetoothScan() {
-    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen((results) async {
-      for (ScanResult r in results) {
+    // Start scanning and listen for devices
+    scanSubscription = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen(
+      (ScanResult r) async {
         if (connectedDevice == null) {
           connectedDevice = r.device;
-          await connectedDevice!.connect(
-            timeout: const Duration(seconds: 10),
-            // license parameter is optional if not using it
-          );
+          await connectedDevice!.connect(timeout: const Duration(seconds: 10), autoConnect: false, 
+            onError: (e) => print("Connect error: $e"));
           await flutterBlue.stopScan();
         }
-      }
-    });
+      },
+      onDone: () => scanSubscription?.cancel(),
+      onError: (e) => print("Scan error: $e"),
+    );
   }
 
   void _startLocationTracking() async {
@@ -80,8 +81,8 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
 
     positionStream = Geolocator.getPositionStream().listen((Position pos) {
       setState(() {
-        pace = pos.speed;
-        distance += pos.speed;
+        pace = pos.speed; // m/s
+        distance += pos.speed; // simplistic accumulation
       });
     });
   }
