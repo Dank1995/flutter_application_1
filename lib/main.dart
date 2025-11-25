@@ -35,11 +35,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-
-  StreamSubscription<List<ScanResult>>? scanSub;
-  BluetoothDevice? cadenceDevice;
-  BluetoothDevice? hrDevice;
+  late StreamSubscription<List<ScanResult>> scanSub;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -60,33 +56,19 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
-    scanSub?.cancel();
+    scanSub.cancel();
     timer?.cancel();
     super.dispose();
   }
 
-  // -----------------------------
-  // Start BLE scan
-  // -----------------------------
   void startScanning() {
-    flutterBlue.startScan(timeout: const Duration(seconds: 5));
-
-    scanSub = flutterBlue.scanResults.listen((results) {
-      for (var r in results) {
-        // You can filter devices by name or UUID here
-        if (r.device.name.contains("Cadence")) {
-          cadenceDevice ??= r.device;
-        }
-        if (r.device.name.contains("HR")) {
-          hrDevice ??= r.device;
-        }
-
-        int cadence = 70 + random.nextInt(40);
-        int power = 100 + random.nextInt(150);
-        int hr = 120 + random.nextInt(40);
-        updateMetrics(cadence, power, hr);
-      }
+    scanSub = FlutterBluePlus.scanResults.listen((results) {
+      int cadence = 70 + random.nextInt(40);
+      int power = 100 + random.nextInt(150);
+      int hr = 120 + random.nextInt(40);
+      updateMetrics(cadence, power, hr);
     });
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
     timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
@@ -94,30 +76,12 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // -----------------------------
-  // Stop BLE scan
-  // -----------------------------
   void stopScanning() async {
-    await flutterBlue.stopScan();
-    await scanSub?.cancel();
+    await FlutterBluePlus.stopScan();
+    await scanSub.cancel();
     timer?.cancel();
   }
 
-  // -----------------------------
-  // Connect to devices
-  // -----------------------------
-  Future<void> connectDevices() async {
-    if (cadenceDevice != null) {
-      await cadenceDevice!.connect(license: ''); // required parameter
-    }
-    if (hrDevice != null) {
-      await hrDevice!.connect(license: '');
-    }
-  }
-
-  // -----------------------------
-  // Update metrics
-  // -----------------------------
   void updateMetrics(int cadence, int power, int hr) {
     optimizer.updateSensors(cadence, power, hr);
     var result = optimizer.shiftPrompt();
@@ -132,9 +96,6 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  // -----------------------------
-  // Log ride data
-  // -----------------------------
   Future<void> logRide() async {
     csvData.add([
       timeSec,
@@ -146,9 +107,6 @@ class _MyHomePageState extends State<MyHomePage> {
     ]);
   }
 
-  // -----------------------------
-  // Export CSV
-  // -----------------------------
   Future<void> exportCsv() async {
     final csvString = const ListToCsvConverter().convert(csvData);
     final directory = await getApplicationDocumentsDirectory();
@@ -173,6 +131,7 @@ class _MyHomePageState extends State<MyHomePage> {
             Text('Heart Rate: $currentHR bpm'),
             Text('Efficiency: ${currentEfficiency.toStringAsFixed(2)}'),
             const SizedBox(height: 20),
+
             Container(
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.symmetric(vertical: 10),
@@ -189,11 +148,11 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
+
             const SizedBox(height: 20),
             ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
             ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
-            ElevatedButton(onPressed: connectDevices, child: const Text('Connect Devices')),
           ],
         ),
       ),
@@ -231,8 +190,8 @@ class CadenceOptimizerAI {
     int powerBucket = (currentPower / 10).round() * 10;
     var cadences = efficiencyMap[powerBucket];
     if (cadences == null || cadences.isEmpty) return 90;
-    var avgEff = cadences.map((k, v) => MapEntry(k, v.reduce((a, b) => a + b) / v.length));
-    int optimal = avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+    var avgEff = cadences.map((k,v) => MapEntry(k, v.reduce((a,b)=>a+b)/v.length));
+    int optimal = avgEff.entries.reduce((a,b)=>a.value>b.value?a:b).key;
     return optimal;
   }
 
