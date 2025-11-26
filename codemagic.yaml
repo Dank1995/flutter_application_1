@@ -1,37 +1,12 @@
 workflows:
-  ios-auto-sign:
-    name: iOS Build with Auto-Signing
-    max_build_duration: 60
+  ios-workflow:
+    name: iOS Build
     environment:
       flutter: stable
       xcode: latest
-      cocoapods_action: install
-      vars:
-        FLUTTER_CHANNEL: stable
     scripts:
-      - name: Clean Flutter project
-        script: |
-          flutter clean
-      - name: Get dependencies
-        script: |
-          flutter pub get
-      - name: Build iOS app
-        script: |
-          flutter build ios --release --no-codesign
+      - flutter clean
+      - flutter pub get
+      - flutter build ios --release
     artifacts:
       - build/ios/ipa/*.ipa
-    publishing:
-      email:
-        recipients:
-          - your-email@example.com
-      github:
-        release:
-          tag: "v1.1.0"
-          assets:
-            - build/ios/ipa/*.ipa
-    ios:
-      automatic_code_signing:
-        enabled: true
-        apple_id: $APPLE_ID
-        team_id: $APPLE_TEAM_ID
-        profile: $APPLE_PROVISIONING_PROFILE

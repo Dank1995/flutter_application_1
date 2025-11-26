@@ -1,13 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'dart:async';
 
 void main() {
-  runApp(GoldilocksApp());
+  runApp(GoldilocksAIApp());
 }
 
-class GoldilocksApp extends StatelessWidget {
+class GoldilocksAIApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -24,109 +24,115 @@ class RideDashboard extends StatefulWidget {
 }
 
 class _RideDashboardState extends State<RideDashboard> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription? scanSub;
-  List<BluetoothDevice> devices = [];
-  List<double> efficiencyData = [];
+  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+  StreamSubscription<ScanResult>? scanSub;
+  List<ScanResult> devices = [];
+
+  double currentCadence = 0;
+  double currentBpm = 0;
   double currentEfficiency = 0;
 
   @override
   void initState() {
     super.initState();
-    startScan();
-  }
-
-  void startScan() {
-    flutterBlue.startScan(timeout: Duration(seconds: 5));
-    scanSub = flutterBlue.scanResults.listen((results) {
-      setState(() {
-        devices = results.map((r) => r.device).toList();
-      });
-    });
-  }
-
-  void stopScan() async {
-    await flutterBlue.stopScan();
-    scanSub?.cancel();
-  }
-
-  void updateEfficiency(double bpm, double pacePerKm) {
-    // Example: efficiency = pace per bpm ratio
-    double efficiency = pacePerKm / bpm * 100;
-    setState(() {
-      currentEfficiency = efficiency;
-      efficiencyData.add(efficiency);
-      if (efficiencyData.length > 50) efficiencyData.removeAt(0);
-    });
-  }
-
-  Color getEfficiencyColor(double value) {
-    if (value > 70) return Colors.green;
-    if (value < 40) return Colors.red;
-    return Colors.orange;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('GoldilocksAI Ride Dashboard')),
-      body: Padding(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Text(
-              'Current Efficiency: ${currentEfficiency.toStringAsFixed(1)}',
-              style: TextStyle(
-                  fontSize: 22, color: getEfficiencyColor(currentEfficiency)),
-            ),
-            SizedBox(height: 20),
-            Expanded(
-              child: LineChart(
-                LineChartData(
-                  minY: 0,
-                  maxY: 120,
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: efficiencyData
-                          .asMap()
-                          .entries
-                          .map((e) => FlSpot(e.key.toDouble(), e.value))
-                          .toList(),
-                      isCurved: true,
-                      colors: [getEfficiencyColor(currentEfficiency)],
-                      barWidth: 3,
-                    ),
-                  ],
-                  titlesData: FlTitlesData(
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: true),
-                    ),
-                  ),
-                  gridData: FlGridData(show: true),
-                  borderData: FlBorderData(show: true),
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-                onPressed: () => updateEfficiency(100, 5.2),
-                child: Text('Simulate Update')),
-            ElevatedButton(
-                onPressed: startScan, child: Text('Start BLE Scan')),
-            ElevatedButton(
-                onPressed: stopScan, child: Text('Stop BLE Scan')),
-          ],
-        ),
-      ),
-    );
+    startBleScan();
   }
 
   @override
   void dispose() {
     scanSub?.cancel();
     super.dispose();
+  }
+
+  void startBleScan() {
+    scanSub = flutterBlue.scan(timeout: Duration(seconds: 5)).listen((scanResult) {
+      if (!devices.any((d) => d.device.id == scanResult.device.id)) {
+        setState(() {
+          devices.add(scanResult);
+        });
+      }
+    }, onDone: () {
+      scanSub?.cancel();
+    });
+  }
+
+  void stopBleScan() async {
+    await scanSub?.cancel();
+  }
+
+  Color getEfficiencyColor(double eff) {
+    if (eff < 50) return Colors.red;
+    if (eff < 80) return Colors.orange;
+    return Colors.green;
+  }
+
+  // Dummy logic: in real app, read BLE sensor data
+  void updateMetrics() {
+    setState(() {
+      currentCadence = 80 + (10 * (0.5 - 0.5));
+      currentBpm = 120 + (10 * (0.5 - 0.5));
+      currentEfficiency = (currentCadence / 100 + currentBpm / 200) * 100;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    List<FlSpot> cadenceSpots = List.generate(10, (i) => FlSpot(i.toDouble(), currentCadence));
+    List<FlSpot> bpmSpots = List.generate(10, (i) => FlSpot(i.toDouble(), currentBpm));
+
+    return Scaffold(
+      appBar: AppBar(title: Text("GoldilocksAI Ride Dashboard")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Text("Cadence: ${currentCadence.toStringAsFixed(1)} rpm"),
+            SizedBox(height: 8),
+            Text("Heart Rate: ${currentBpm.toStringAsFixed(0)} bpm"),
+            SizedBox(height: 8),
+            Text(
+              "Efficiency Score: ${currentEfficiency.toStringAsFixed(1)}",
+              style: TextStyle(color: getEfficiencyColor(currentEfficiency), fontSize: 20),
+            ),
+            SizedBox(height: 16),
+            Expanded(
+              child: LineChart(
+                LineChartData(
+                  minX: 0,
+                  maxX: 9,
+                  minY: 0,
+                  maxY: 200,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: cadenceSpots,
+                      color: Colors.blue,
+                      isCurved: true,
+                      barWidth: 3,
+                      dotData: FlDotData(show: false),
+                    ),
+                    LineChartBarData(
+                      spots: bpmSpots,
+                      color: Colors.green,
+                      isCurved: true,
+                      barWidth: 3,
+                      dotData: FlDotData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    leftTitles: SideTitles(showTitles: true),
+                    bottomTitles: SideTitles(showTitles: true),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: updateMetrics,
+              child: Text("Update Metrics"),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
