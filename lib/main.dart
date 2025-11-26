@@ -82,7 +82,10 @@ class RideState extends ChangeNotifier {
 
   Future<void> connectToDevice(BluetoothDevice d) async {
     device = d;
-    await device!.connect(autoConnect: false); // ✅ removed license requirement
+    await device!.connect(
+      autoConnect: false,
+      license: License.bsd,   // ✅ required parameter
+    );
 
     final services = await device!.discoverServices();
     for (var service in services) {
@@ -198,4 +201,5 @@ class RideDashboard extends StatelessWidget {
     );
   }
 }
+
 
