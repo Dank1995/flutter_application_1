@@ -121,7 +121,7 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 
   Future<void> _ensurePermissions() async {
-    // Android runtime permissions
+    // Android runtime permissions only
     if (await Permission.locationWhenInUse.isDenied) {
       await Permission.locationWhenInUse.request();
     }
@@ -131,7 +131,7 @@ class _RideDashboardState extends State<RideDashboard> {
     if (await Permission.bluetoothConnect.isDenied) {
       await Permission.bluetoothConnect.request();
     }
-    // iOS: handled via Info.plist, no runtime request needed
+    // iOS: handled via Info.plist
   }
 
   @override
