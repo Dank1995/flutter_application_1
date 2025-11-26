@@ -1,17 +1,17 @@
-name: goldilocks_ai
-description: Workout optimizer app without BLE or charts
-publish_to: "none"
+name: physiological_optimiser
+description: Physiological Optimiser workout app with cadence optimizer
+version: 1.0.0+1
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
+  sdk: ">=2.18.0 <3.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  flutter_blue_plus: ^8.0.1
+  provider: ^6.1.5
+  fl_chart: ^0.69.0   # ✅ added for charts
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-flutter:
-  uses-material-design: true

@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';   // ✅ added for charts
+import 'package:fl_chart/fl_chart.dart';   // ✅ chart import
 
 void main() {
   runApp(
@@ -182,13 +180,17 @@ class RideDashboard extends StatelessWidget {
                         FlSpot(2, ride.hr.toDouble()),
                       ],
                       isCurved: true,
-                      colors: [ride.alertColor],
+                      color: ride.alertColor,
                       dotData: FlDotData(show: false),
                     ),
                   ],
                   titlesData: FlTitlesData(
-                    leftTitles: SideTitles(showTitles: true),
-                    bottomTitles: SideTitles(showTitles: true),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
                   ),
                 ),
               ),
