@@ -36,27 +36,24 @@ class DeviceSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Select Sensor")),
-      body: StreamBuilder<List<BluetoothDevice>>(
-        stream: FlutterBluePlus.connectedDevicesStream,   // ✅ updated API
+      body: StreamBuilder<List<ScanResult>>(
+        stream: FlutterBluePlus.scanResults,   // ✅ use scanResults stream
         initialData: const [],
         builder: (context, snapshot) {
-          final devices = snapshot.data ?? [];
+          final results = snapshot.data ?? [];
           return ListView(
-            children: devices
-                .map((d) => ListTile(
-                      title: Text(d.name.isEmpty ? d.remoteId.toString() : d.name),
-                      subtitle: Text(d.remoteId.toString()),
-                      onTap: () async {
-                        await Provider.of<RideState>(context, listen: false)
-                            .connectToDevice(d);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => const RideDashboard()),
-                        );
-                      },
-                    ))
-                .toList(),
+            children: results.map((r) => ListTile(
+              title: Text(r.device.name.isEmpty ? r.device.remoteId.toString() : r.device.name),
+              subtitle: Text(r.device.remoteId.toString()),
+              onTap: () async {
+                await Provider.of<RideState>(context, listen: false)
+                    .connectToDevice(r.device);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RideDashboard()),
+                );
+              },
+            )).toList(),
           );
         },
       ),
@@ -85,14 +82,14 @@ class RideState extends ChangeNotifier {
 
   Future<void> connectToDevice(BluetoothDevice d) async {
     device = d;
-    await device!.connect(autoConnect: false, license: "PhysiologicalOptimiser"); // ✅ license required
+    await device!.connect(autoConnect: false); // ✅ removed license requirement
 
     final services = await device!.discoverServices();
     for (var service in services) {
       for (var char in service.characteristics) {
         if (char.properties.notify) {
           await char.setNotifyValue(true);
-          characteristicSub = char.lastValueStream.listen((data) {   // ✅ updated API
+          characteristicSub = char.lastValueStream.listen((data) {
             if (data.length >= 3) {
               cadence = data[0];
               power = data[1];
@@ -201,3 +198,4 @@ class RideDashboard extends StatelessWidget {
     );
   }
 }
+
