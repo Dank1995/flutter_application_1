@@ -78,7 +78,7 @@ class RideState extends ChangeNotifier {
     device = d;
     await device!.connect(
       autoConnect: false,
-      license: License("bsd"),   // ✅ fixed
+      license: License.gpl,   // ✅ use a valid enum value
     );
 
     final services = await device!.discoverServices();
@@ -192,4 +192,3 @@ class RideDashboard extends StatelessWidget {
     );
   }
 }
-
