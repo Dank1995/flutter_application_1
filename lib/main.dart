@@ -1,120 +1,90 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:charts_flutter/flutter.dart' as charts;
 
-void main() => runApp(GoldilocksApp());
+void main() {
+  runApp(const GoldilocksAIApp());
+}
 
-class GoldilocksApp extends StatelessWidget {
+class GoldilocksAIApp extends StatelessWidget {
+  const GoldilocksAIApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GoldilocksAI',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: RideDashboard(),
+      home: const RideDashboard(),
     );
   }
 }
 
-// -----------------------------
-// Sensor & Optimizer Logic
-// -----------------------------
-class CadenceOptimizerAI {
-  int currentCadence = 0;
-  int currentPower = 0;
-  int currentHR = 0;
-  double currentEfficiency = 0.0;
-
-  Map<int, Map<int, List<double>>> efficiencyMap = {};
-
-  void updateSensors(int cadence, int power, int hr) {
-    currentCadence = cadence;
-    currentPower = power;
-    currentHR = hr;
-    currentEfficiency = hr > 0 ? power / hr : 0.0;
-    _learnCadence(power, cadence, currentEfficiency);
-  }
-
-  void _learnCadence(int power, int cadence, double efficiency) {
-    int p = (power / 10).round() * 10;
-    int c = (cadence / 2).round() * 2;
-    efficiencyMap[p] ??= {};
-    efficiencyMap[p]![c] ??= [];
-    efficiencyMap[p]![c]!.add(efficiency);
-  }
-
-  int predictOptimalCadence() {
-    int p = (currentPower / 10).round() * 10;
-    if (!efficiencyMap.containsKey(p)) return 90;
-    var cadences = efficiencyMap[p]!;
-    var avgEff = cadences.map((c, e) => MapEntry(c, e.reduce((a,b)=>a+b)/e.length));
-    int optimal = avgEff.entries.reduce((a,b) => a.value > b.value ? a : b).key;
-    return optimal;
-  }
-
-  String shiftPrompt() {
-    int optimal = predictOptimalCadence();
-    int diff = currentCadence - optimal;
-    if (diff.abs() > 5) {
-      return diff > 0 ? "Shift to higher gear ($optimal RPM)" : "Shift to lower gear ($optimal RPM)";
-    }
-    return "Cadence optimal ($optimal RPM)";
-  }
-
-  bool isOptimal() => (currentCadence - predictOptimalCadence()).abs() <= 5;
-}
-
-// -----------------------------
-// Dashboard & BLE
-// -----------------------------
 class RideDashboard extends StatefulWidget {
+  const RideDashboard({super.key});
   @override
-  _RideDashboardState createState() => _RideDashboardState();
+  State<RideDashboard> createState() => _RideDashboardState();
 }
 
 class _RideDashboardState extends State<RideDashboard> {
-  final CadenceOptimizerAI optimizer = CadenceOptimizerAI();
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-
   StreamSubscription? scanSub;
-  List<BluetoothDevice> devices = [];
 
   int cadence = 0;
   int power = 0;
   int hr = 0;
+  int optimalCadence = 90;
+  double efficiency = 0.0;
 
-  List<int> cadenceHistory = [];
-  List<int> optimalHistory = [];
-  List<double> efficiencyHistory = [];
+  final List<int> cadenceHistory = [];
+  final List<int> optimalHistory = [];
+  final List<double> efficiencyHistory = [];
 
   @override
   void initState() {
     super.initState();
-    _startScan();
-    Timer.periodic(Duration(seconds: 1), (_) => _updateReadings());
+    startScan();
+    Timer.periodic(const Duration(seconds: 1), (_) => updateDashboard());
   }
 
-  void _startScan() {
-    scanSub = flutterBlue.scan(timeout: Duration(seconds: 5)).listen((scanResult) {
-      if (!devices.contains(scanResult.device)) {
-        devices.add(scanResult.device);
+  void startScan() async {
+    await flutterBlue.startScan(timeout: const Duration(seconds: 5));
+
+    scanSub = flutterBlue.scanResults.listen((results) {
+      for (var r in results) {
+        // For demo: if device name contains "Cadence", read its data
+        if ((r.device.name ?? "").contains("Cadence")) {
+          // In real app, connect & subscribe to characteristics
+          // Here we simulate:
+          setState(() {
+            cadence = Random().nextInt(60) + 60; // 60-120 RPM
+            power = Random().nextInt(150) + 100; // 100-250 W
+            hr = Random().nextInt(40) + 120; // 120-160 bpm
+          });
+        }
       }
-    }, onDone: () => scanSub?.cancel());
+    });
   }
 
-  void _updateReadings() {
-    // Mock BLE readings if no device
-    if (devices.isEmpty) {
-      cadence = 70 + (DateTime.now().second % 30);
-      power = 120 + (DateTime.now().second % 100);
-      hr = 120 + (DateTime.now().second % 40);
-    }
-    optimizer.updateSensors(cadence, power, hr);
+  @override
+  void dispose() {
+    scanSub?.cancel();
+    flutterBlue.stopScan();
+    super.dispose();
+  }
+
+  void updateDashboard() {
+    // Efficiency calculation
+    if (hr != 0) efficiency = power / hr;
+
+    // Simple optimizer: pick cadence giving max efficiency (demo)
+    optimalCadence = cadence < 90 ? cadence + 5 : cadence - 5;
+
     setState(() {
       cadenceHistory.add(cadence);
-      optimalHistory.add(optimizer.predictOptimalCadence());
-      efficiencyHistory.add(optimizer.currentEfficiency);
-      if (cadenceHistory.length > 15) {
+      optimalHistory.add(optimalCadence);
+      efficiencyHistory.add(efficiency);
+      if (cadenceHistory.length > 20) {
         cadenceHistory.removeAt(0);
         optimalHistory.removeAt(0);
         efficiencyHistory.removeAt(0);
@@ -123,48 +93,47 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 
   @override
-  void dispose() {
-    scanSub?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    bool optimal = optimizer.isOptimal();
+    final bool isOptimal = (cadence - optimalCadence).abs() <= 5;
+
     return Scaffold(
-      appBar: AppBar(title: Text('GoldilocksAI Dashboard')),
+      appBar: AppBar(title: const Text("GoldilocksAI Dashboard")),
       body: Column(
         children: [
           Container(
-            color: optimal ? Colors.green[200] : Colors.red[200],
-            padding: EdgeInsets.all(16),
+            color: isOptimal ? Colors.green[300] : Colors.red[300],
+            padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                Text('Cadence: $cadence RPM', style: TextStyle(fontSize: 22)),
-                Text('Power: $power W', style: TextStyle(fontSize: 22)),
-                Text('HR: $hr BPM', style: TextStyle(fontSize: 22)),
-                Text('Efficiency: ${optimizer.currentEfficiency.toStringAsFixed(2)}', style: TextStyle(fontSize: 22)),
-                Text('Shift Prompt: ${optimizer.shiftPrompt()}', style: TextStyle(fontSize: 18)),
+                Text("Cadence: $cadence RPM", style: const TextStyle(fontSize: 20)),
+                Text("Optimal: $optimalCadence RPM", style: const TextStyle(fontSize: 20)),
+                Text("Efficiency: ${efficiency.toStringAsFixed(2)} W/bpm", style: const TextStyle(fontSize: 20)),
               ],
             ),
           ),
           Expanded(
-            child: charts.LineChart([
-              charts.Series<int, int>(
-                id: 'Cadence',
-                domainFn: (int idx, _) => idx,
-                measureFn: (int val, _) => val,
-                data: cadenceHistory,
-                colorFn: (_, __) => charts.MaterialPalette.blue.shadeDefault,
+            child: charts.LineChart(
+              [
+                charts.Series<int, int>(
+                  id: 'Cadence',
+                  colorFn: (_, __) => charts.MaterialPalette.blue.shadeDefault,
+                  domainFn: (i, idx) => idx!,
+                  measureFn: (i, _) => cadenceHistory[_],
+                  data: List.generate(cadenceHistory.length, (i) => i),
+                ),
+                charts.Series<int, int>(
+                  id: 'Optimal',
+                  colorFn: (_, __) => charts.MaterialPalette.green.shadeDefault,
+                  domainFn: (i, idx) => idx!,
+                  measureFn: (i, _) => optimalHistory[_],
+                  data: List.generate(optimalHistory.length, (i) => i),
+                ),
+              ],
+              animate: true,
+              primaryMeasureAxis: charts.NumericAxisSpec(
+                viewport: charts.NumericExtents(50, 200),
               ),
-              charts.Series<int, int>(
-                id: 'Optimal',
-                domainFn: (int idx, _) => idx,
-                measureFn: (int val, _) => val,
-                data: optimalHistory,
-                colorFn: (_, __) => charts.MaterialPalette.green.shadeDefault,
-              ),
-            ], animate: true),
+            ),
           ),
         ],
       ),
