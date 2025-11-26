@@ -5,6 +5,7 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+
     scripts:
       - name: Pull latest code
         script: git pull origin main
@@ -16,6 +17,14 @@ workflows:
 
       - name: Get Flutter packages
         script: flutter pub get
+
+      - name: Build iOS
+        script: |
+          cd ios
+          pod install --repo-update
+          cd ..
+          flutter build ios --release --no-codesign
+
     cache:
       cache_paths:
         - ~/.pub-cache
