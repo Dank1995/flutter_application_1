@@ -1,212 +1,42 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:csv/csv.dart';
-
-void main() {
-  runApp(const MyApp());
-}
+import 'dart:collection';
+import 'package:fl_chart/fl_chart.dart';
 
 // -----------------------------
-// App Scaffold
+// Optimizer logic
 // -----------------------------
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'GoldilocksAI',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const MyHomePage(),
-    );
-  }
-}
-
-// -----------------------------
-// Home Page
-// -----------------------------
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-
-  StreamSubscription? scanSubscription;
-  BluetoothDevice? cadenceDevice;
-  BluetoothDevice? hrDevice;
-
+class CadenceOptimizer {
   int currentCadence = 0;
   int currentPower = 0;
   int currentHR = 0;
-  double currentEfficiency = 0;
 
-  String shiftMessage = "Cadence optimal";
-  bool shiftAlert = false;
+  final int tolerance = 5; // ±RPM range for optimal
 
-  final List<List<dynamic>> csvData = [
-    ["Time", "Cadence", "Power", "HR", "Efficiency", "OptimalCadence"]
-  ];
-
-  final CadenceOptimizerAI optimizer = CadenceOptimizerAI();
-  final Random random = Random();
-  int timeSec = 0;
-  Timer? timer;
-
-  @override
-  void dispose() {
-    stopScan();
-    timer?.cancel();
-    cadenceDevice?.disconnect();
-    hrDevice?.disconnect();
-    super.dispose();
-  }
-
-  void startScan() {
-    scanSubscription = flutterBlue
-        .scan(timeout: const Duration(seconds: 5))
-        .listen((scanResult) async {
-      // Assign devices based on name
-      if (scanResult.device.name.contains("Cadence")) {
-        cadenceDevice = scanResult.device;
-        await connectDevice(cadenceDevice!);
-      }
-      if (scanResult.device.name.contains("HR")) {
-        hrDevice = scanResult.device;
-        await connectDevice(hrDevice!);
-      }
-
-      // Simulate sensor values if no actual device
-      int cadence = 70 + random.nextInt(40);
-      int power = 100 + random.nextInt(150);
-      int hr = 120 + random.nextInt(40);
-      updateMetrics(cadence, power, hr);
-    });
-
-    // Timer for CSV logging
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      logRide();
-      timeSec++;
-    });
-  }
-
-  Future<void> stopScan() async {
-    await scanSubscription?.cancel();
-    scanSubscription = null;
-    await flutterBlue.stopScan();
-  }
-
-  Future<void> connectDevice(BluetoothDevice device) async {
-    try {
-      await device.connect();
-      print('Connected to ${device.name}');
-    } catch (e) {
-      print('Failed to connect: $e');
-    }
-  }
-
-  void updateMetrics(int cadence, int power, int hr) {
-    optimizer.updateSensors(cadence, power, hr);
-    var result = optimizer.shiftPrompt();
-
-    setState(() {
-      currentCadence = cadence;
-      currentPower = power;
-      currentHR = hr;
-      currentEfficiency = optimizer.currentEfficiency;
-      shiftMessage = result["message"];
-      shiftAlert = result["alert"];
-    });
-  }
-
-  Future<void> logRide() async {
-    csvData.add([
-      timeSec,
-      currentCadence,
-      currentPower,
-      currentHR,
-      currentEfficiency.toStringAsFixed(2),
-      optimizer.predictOptimalCadence()
-    ]);
-  }
-
-  Future<void> exportCsv() async {
-    final csvString = const ListToCsvConverter().convert(csvData);
-    final directory = await getApplicationDocumentsDirectory();
-    final path = '${directory.path}/cadence_data.csv';
-    final file = File(path);
-    await file.writeAsString(csvString);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('CSV saved at $path')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('GoldilocksAI')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Cadence: $currentCadence rpm'),
-            Text('Power: $currentPower W'),
-            Text('Heart Rate: $currentHR bpm'),
-            Text('Efficiency: ${currentEfficiency.toStringAsFixed(2)}'),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: shiftAlert ? Colors.redAccent : Colors.greenAccent,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                shiftMessage,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(onPressed: startScan, child: const Text('Start Scan')),
-            ElevatedButton(onPressed: stopScan, child: const Text('Stop Scan')),
-            ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// -----------------------------
-// Cadence Optimizer AI
-// -----------------------------
-class CadenceOptimizerAI {
-  int currentCadence = 0;
-  int currentPower = 0;
-  int currentHR = 0;
-  double currentEfficiency = 0.0;
+  // Efficiency map: power bucket -> cadence bucket -> list of efficiencies
   Map<int, Map<int, List<double>>> efficiencyMap = {};
 
-  void updateSensors(int cadence, int power, int hr) {
+  double currentEfficiency = 0.0;
+
+  void updateSensorData(int cadence, int power, int hr) {
     currentCadence = cadence;
     currentPower = power;
     currentHR = hr;
-    currentEfficiency = hr == 0 ? 0 : power / hr;
+
+    currentEfficiency = calculateEfficiency();
     learnCadence(power, cadence, currentEfficiency);
+  }
+
+  double calculateEfficiency() {
+    if (currentHR == 0) return 0;
+    return currentPower / currentHR; // W/BPM
   }
 
   void learnCadence(int power, int cadence, double efficiency) {
     int powerBucket = (power / 10).round() * 10;
     int cadenceBucket = (cadence / 2).round() * 2;
+
     efficiencyMap.putIfAbsent(powerBucket, () => {});
     efficiencyMap[powerBucket]!.putIfAbsent(cadenceBucket, () => []);
     efficiencyMap[powerBucket]![cadenceBucket]!.add(efficiency);
@@ -214,24 +44,234 @@ class CadenceOptimizerAI {
 
   int predictOptimalCadence() {
     int powerBucket = (currentPower / 10).round() * 10;
-    var cadences = efficiencyMap[powerBucket];
-    if (cadences == null || cadences.isEmpty) return 90;
-    var avgEff = cadences.map((k, v) => MapEntry(k, v.reduce((a, b) => a + b) / v.length));
+    var cadences = efficiencyMap[powerBucket] ?? {};
+
+    if (cadences.isEmpty) return 90; // default
+    Map<int, double> avgEff = {};
+    cadences.forEach((cad, effs) {
+      avgEff[cad] = effs.reduce((a, b) => a + b) / effs.length;
+    });
     int optimal = avgEff.entries.reduce((a, b) => a.value > b.value ? a : b).key;
     return optimal;
   }
 
-  Map<String, dynamic> shiftPrompt() {
+  bool isCadenceOptimal() {
     int optimal = predictOptimalCadence();
-    int diff = currentCadence - optimal;
-    bool alert = false;
-    String msg = "Cadence optimal ($optimal RPM)";
-    if (diff.abs() > 5) {
-      alert = true;
-      msg = diff > 0
-          ? "Shift to higher gear ($optimal RPM)"
-          : "Shift to lower gear ($optimal RPM)";
+    return (currentCadence - optimal).abs() <= tolerance;
+  }
+}
+
+// -----------------------------
+// BLE Sensor Integration
+// -----------------------------
+class BleManager {
+  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
+
+  StreamSubscription<ScanResult>? scanSub;
+  BluetoothDevice? hrDevice;
+  BluetoothDevice? powerDevice;
+
+  BluetoothCharacteristic? hrChar;
+  BluetoothCharacteristic? powerChar;
+
+  final void Function(int cadence, int power, int hr) onData;
+
+  BleManager({required this.onData});
+
+  Future<void> startScan() async {
+    scanSub = flutterBlue.scan(timeout: const Duration(seconds: 5)).listen((result) {
+      if (hrDevice == null && (result.device.name.contains("HRM") || result.device.name.contains("HR"))) {
+        hrDevice = result.device;
+      }
+      if (powerDevice == null && result.device.name.contains("RS200")) {
+        powerDevice = result.device;
+      }
+    }, onDone: () async {
+      await connectDevices();
+    });
+  }
+
+  Future<void> connectDevices() async {
+    if (hrDevice != null) {
+      await hrDevice!.connect();
+      var services = await hrDevice!.discoverServices();
+      for (var s in services) {
+        for (var c in s.characteristics) {
+          if (c.uuid.toString().toLowerCase().contains("2a37")) {
+            hrChar = c;
+            await c.setNotifyValue(true);
+            c.value.listen((data) {
+              int hr = data.length > 1 ? data[1] : 0;
+              onData(0, 0, hr); // cadence/power updated separately
+            });
+          }
+        }
+      }
     }
-    return {"message": msg, "alert": alert};
+
+    if (powerDevice != null) {
+      await powerDevice!.connect();
+      var services = await powerDevice!.discoverServices();
+      for (var s in services) {
+        for (var c in s.characteristics) {
+          if (c.uuid.toString().toLowerCase().contains("2a63")) {
+            powerChar = c;
+            await c.setNotifyValue(true);
+            c.value.listen((data) {
+              int flags = data[0];
+              int power = data.length > 2 ? data[1] | (data[2] << 8) : 0;
+              int cadence = (flags & 0x01) != 0 && data.length > 3 ? data[3] : 0;
+              onData(cadence, power, 0);
+            });
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> stop() async {
+    await scanSub?.cancel();
+    if (hrDevice != null) await hrDevice!.disconnect();
+    if (powerDevice != null) await powerDevice!.disconnect();
+  }
+}
+
+// -----------------------------
+// Flutter UI
+// -----------------------------
+void main() {
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  final CadenceOptimizer optimizer = CadenceOptimizer();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'GoldilocksAI',
+      home: Scaffold(
+        appBar: AppBar(title: Text('GoldilocksAI Cadence Optimizer')),
+        body: OptimizerDashboard(optimizer: optimizer),
+      ),
+    );
+  }
+}
+
+class OptimizerDashboard extends StatefulWidget {
+  final CadenceOptimizer optimizer;
+  OptimizerDashboard({required this.optimizer});
+
+  @override
+  _OptimizerDashboardState createState() => _OptimizerDashboardState();
+}
+
+class _OptimizerDashboardState extends State<OptimizerDashboard> {
+  int currentCadence = 0;
+  int currentPower = 0;
+  int currentHR = 0;
+  double currentEfficiency = 0;
+
+  late BleManager bleManager;
+
+  // History for graphing
+  final int maxPoints = 30;
+  final Queue<FlSpot> efficiencySpots = Queue<FlSpot>();
+  int timeCounter = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    bleManager = BleManager(onData: (cad, power, hr) {
+      setState(() {
+        currentCadence = cad > 0 ? cad : currentCadence;
+        currentPower = power > 0 ? power : currentPower;
+        currentHR = hr > 0 ? hr : currentHR;
+
+        widget.optimizer.updateSensorData(currentCadence, currentPower, currentHR);
+        currentEfficiency = widget.optimizer.currentEfficiency;
+
+        // Add point to graph
+        efficiencySpots.add(FlSpot(timeCounter.toDouble(), currentEfficiency));
+        if (efficiencySpots.length > maxPoints) efficiencySpots.removeFirst();
+        timeCounter++;
+      });
+    });
+    bleManager.startScan();
+  }
+
+  @override
+  void dispose() {
+    bleManager.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    bool optimal = widget.optimizer.isCadenceOptimal();
+    int optimalCad = widget.optimizer.predictOptimalCadence();
+
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(height: 10),
+          Text('Current Cadence: $currentCadence RPM', style: TextStyle(fontSize: 24)),
+          Text('Optimal Cadence: $optimalCad RPM', style: TextStyle(fontSize: 24)),
+          SizedBox(height: 10),
+          Text('Power: $currentPower W', style: TextStyle(fontSize: 20)),
+          Text('Heart Rate: $currentHR BPM', style: TextStyle(fontSize: 20)),
+          SizedBox(height: 20),
+          Text('Efficiency (W/BPM): ${currentEfficiency.toStringAsFixed(2)}',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          SizedBox(height: 20),
+          Container(
+            width: 150,
+            height: 150,
+            decoration: BoxDecoration(
+              color: optimal ? Colors.green : Colors.red,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                optimal ? 'OPTIMAL' : 'ADJUST',
+                style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          SizedBox(height: 30),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: SizedBox(
+              height: 250,
+              child: LineChart(
+                LineChartData(
+                  minX: 0,
+                  maxX: maxPoints.toDouble(),
+                  minY: 0,
+                  maxY: 5, // adjust dynamically if needed
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: efficiencySpots.toList(),
+                      isCurved: true,
+                      colors: [Colors.blue],
+                      barWidth: 3,
+                      belowBarData: BarAreaData(show: true, colors: [Colors.blue.withOpacity(0.3)]),
+                      dotData: FlDotData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
+                  ),
+                  gridData: FlGridData(show: true),
+                  borderData: FlBorderData(show: true),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
