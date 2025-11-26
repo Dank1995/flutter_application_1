@@ -1,13 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>
-  <string>GoldilocksAI</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.yourcompany.goldilocksai</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0.0</string>
-  <key>CFBundleVersion</key>
-  <string>
+    <!-- App Info -->
+    <key>CFBundleName</key>
+    <string>PhysiologicalOptimiser</string>
+    <key>CFBundleDisplayName</key>
+    <string>PhysiologicalOptimiser</string>
+    <key>CFBundleIdentifier</key>
+    <string>PhysiologicalOptimiser</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+    <!-- Bluetooth Permissions -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app needs access to Bluetooth to connect to sensors.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>We need Bluetooth to receive sensor data for your ride.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location is required for Bluetooth LE scanning.</string>
+
+    <!-- iOS 10+ requirements -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>bluetooth-central</string>
+    </array>
 </dict>
 </plist>
