@@ -1,120 +1,188 @@
 import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
+import 'package:fl_chart/fl_chart.dart';   // ✅ added for charts
 
 void main() {
-  runApp(GoldilocksAIApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => RideState(),
+      child: const MyApp(),
+    ),
+  );
 }
 
-class GoldilocksAIApp extends StatelessWidget {
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'GoldilocksAI',
+      title: 'PhysiologicalOptimiser',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: RideDashboard(),
+      home: const DeviceSelectionScreen(),
     );
   }
 }
 
-class RideDashboard extends StatefulWidget {
-  @override
-  _RideDashboardState createState() => _RideDashboardState();
-}
-
-class _RideDashboardState extends State<RideDashboard> {
-  FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription<ScanResult>? scanSub;
-  List<ScanResult> devices = [];
-
-  double currentCadence = 0;
-  double currentBpm = 0;
-  double currentEfficiency = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    startBleScan();
-  }
-
-  @override
-  void dispose() {
-    scanSub?.cancel();
-    super.dispose();
-  }
-
-  void startBleScan() {
-    scanSub = flutterBlue.scan(timeout: Duration(seconds: 5)).listen((scanResult) {
-      if (!devices.any((d) => d.device.id == scanResult.device.id)) {
-        setState(() {
-          devices.add(scanResult);
-        });
-      }
-    }, onDone: () {
-      scanSub?.cancel();
-    });
-  }
-
-  void stopBleScan() async {
-    await scanSub?.cancel();
-  }
-
-  Color getEfficiencyColor(double eff) {
-    if (eff < 50) return Colors.red;
-    if (eff < 80) return Colors.orange;
-    return Colors.green;
-  }
-
-  // Dummy logic: in real app, read BLE sensor data
-  void updateMetrics() {
-    setState(() {
-      currentCadence = 80 + (10 * (0.5 - 0.5));
-      currentBpm = 120 + (10 * (0.5 - 0.5));
-      currentEfficiency = (currentCadence / 100 + currentBpm / 200) * 100;
-    });
-  }
+// -----------------------------
+// Bluetooth Device Selection
+// -----------------------------
+class DeviceSelectionScreen extends StatelessWidget {
+  const DeviceSelectionScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    List<FlSpot> cadenceSpots = List.generate(10, (i) => FlSpot(i.toDouble(), currentCadence));
-    List<FlSpot> bpmSpots = List.generate(10, (i) => FlSpot(i.toDouble(), currentBpm));
+    return Scaffold(
+      appBar: AppBar(title: const Text("Select Sensor")),
+      body: StreamBuilder<List<BluetoothDevice>>(
+        stream: FlutterBluePlus.instance.connectedDevices.asStream(),
+        initialData: const [],
+        builder: (context, snapshot) {
+          final devices = snapshot.data ?? [];
+          return ListView(
+            children: devices
+                .map((d) => ListTile(
+                      title: Text(d.name.isEmpty ? d.id.toString() : d.name),
+                      subtitle: Text(d.id.toString()),
+                      onTap: () async {
+                        await Provider.of<RideState>(context, listen: false)
+                            .connectToDevice(d);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const RideDashboard()),
+                        );
+                      },
+                    ))
+                .toList(),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: const Icon(Icons.refresh),
+        onPressed: () => FlutterBluePlus.instance.startScan(timeout: const Duration(seconds: 4)),
+      ),
+    );
+  }
+}
+
+// -----------------------------
+// Ride State / Optimizer
+// -----------------------------
+class RideState extends ChangeNotifier {
+  int cadence = 0;
+  int power = 0;
+  int hr = 0;
+  int optimalCadence = 90;
+  double efficiency = 0;
+
+  BluetoothDevice? device;
+  StreamSubscription<List<int>>? characteristicSub;
+
+  final Map<int, Map<int, List<double>>> efficiencyMap = {};
+
+  Future<void> connectToDevice(BluetoothDevice d) async {
+    device = d;
+    await device!.connect(autoConnect: false);
+
+    final services = await device!.discoverServices();
+    for (var service in services) {
+      for (var char in service.characteristics) {
+        if (char.properties.notify) {
+          await char.setNotifyValue(true);
+          characteristicSub = char.value.listen((data) {
+            if (data.length >= 3) {
+              cadence = data[0];
+              power = data[1];
+              hr = data[2];
+              _updateEfficiency();
+              notifyListeners();
+            }
+          });
+        }
+      }
+    }
+  }
+
+  void _updateEfficiency() {
+    if (hr > 0) {
+      efficiency = power / hr;
+      final powerBucket = (power / 10).round() * 10;
+      final cadenceBucket = (cadence / 2).round() * 2;
+      efficiencyMap.putIfAbsent(powerBucket, () => {});
+      efficiencyMap[powerBucket]!.putIfAbsent(cadenceBucket, () => []);
+      efficiencyMap[powerBucket]![cadenceBucket]!.add(efficiency);
+
+      final cadences = efficiencyMap[powerBucket]!;
+      if (cadences.isNotEmpty) {
+        final avgEff = cadences.map((c, eList) => MapEntry(c, eList.reduce((a, b) => a + b)/eList.length));
+        optimalCadence = avgEff.entries.reduce((a,b) => a.value > b.value ? a : b).key;
+      }
+    }
+  }
+
+  String get shiftMessage {
+    final diff = cadence - optimalCadence;
+    if (diff.abs() > 5) {
+      return diff > 0 ? "Shift to higher gear ($optimalCadence RPM)" : "Shift to lower gear ($optimalCadence RPM)";
+    }
+    return "Cadence optimal ($optimalCadence RPM)";
+  }
+
+  Color get alertColor {
+    final diff = cadence - optimalCadence;
+    if (diff.abs() > 5) return Colors.red;
+    return Colors.green;
+  }
+}
+
+// -----------------------------
+// Ride Dashboard
+// -----------------------------
+class RideDashboard extends StatelessWidget {
+  const RideDashboard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ride = Provider.of<RideState>(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text("GoldilocksAI Ride Dashboard")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(title: const Text("Ride Dashboard")),
+      body: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text("Cadence: ${currentCadence.toStringAsFixed(1)} rpm"),
-            SizedBox(height: 8),
-            Text("Heart Rate: ${currentBpm.toStringAsFixed(0)} bpm"),
-            SizedBox(height: 8),
             Text(
-              "Efficiency Score: ${currentEfficiency.toStringAsFixed(1)}",
-              style: TextStyle(color: getEfficiencyColor(currentEfficiency), fontSize: 20),
+              ride.shiftMessage,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: ride.alertColor,
+              ),
             ),
-            SizedBox(height: 16),
-            Expanded(
+            const SizedBox(height: 20),
+            Text("Cadence: ${ride.cadence} RPM"),
+            Text("Power: ${ride.power} W"),
+            Text("Heart Rate: ${ride.hr} BPM"),
+            Text("Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 200,
               child: LineChart(
                 LineChartData(
-                  minX: 0,
-                  maxX: 9,
-                  minY: 0,
-                  maxY: 200,
                   lineBarsData: [
                     LineChartBarData(
-                      spots: cadenceSpots,
-                      color: Colors.blue,
+                      spots: [
+                        FlSpot(0, ride.cadence.toDouble()),
+                        FlSpot(1, ride.power.toDouble()),
+                        FlSpot(2, ride.hr.toDouble()),
+                      ],
                       isCurved: true,
-                      barWidth: 3,
-                      dotData: FlDotData(show: false),
-                    ),
-                    LineChartBarData(
-                      spots: bpmSpots,
-                      color: Colors.green,
-                      isCurved: true,
-                      barWidth: 3,
+                      colors: [ride.alertColor],
                       dotData: FlDotData(show: false),
                     ),
                   ],
@@ -124,11 +192,6 @@ class _RideDashboardState extends State<RideDashboard> {
                   ),
                 ),
               ),
-            ),
-            SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: updateMetrics,
-              child: Text("Update Metrics"),
             ),
           ],
         ),
