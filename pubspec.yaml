@@ -8,9 +8,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: ^2.0.2   # ✅ corrected version
   provider: ^6.1.5
-  fl_chart: ^0.69.0           # ✅ chart package
+  fl_chart: ^0.69.0
 
 dev_dependencies:
   flutter_test:
