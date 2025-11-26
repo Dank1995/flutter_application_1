@@ -1,142 +1,132 @@
-import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:charts_flutter/flutter.dart' as charts;
+import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
 
 void main() {
-  runApp(const GoldilocksAIApp());
+  runApp(GoldilocksApp());
 }
 
-class GoldilocksAIApp extends StatelessWidget {
-  const GoldilocksAIApp({super.key});
+class GoldilocksApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GoldilocksAI',
       theme: ThemeData(primarySwatch: Colors.blue),
-      home: const RideDashboard(),
+      home: RideDashboard(),
     );
   }
 }
 
 class RideDashboard extends StatefulWidget {
-  const RideDashboard({super.key});
   @override
-  State<RideDashboard> createState() => _RideDashboardState();
+  _RideDashboardState createState() => _RideDashboardState();
 }
 
 class _RideDashboardState extends State<RideDashboard> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
   StreamSubscription? scanSub;
-
-  int cadence = 0;
-  int power = 0;
-  int hr = 0;
-  int optimalCadence = 90;
-  double efficiency = 0.0;
-
-  final List<int> cadenceHistory = [];
-  final List<int> optimalHistory = [];
-  final List<double> efficiencyHistory = [];
+  List<BluetoothDevice> devices = [];
+  List<double> efficiencyData = [];
+  double currentEfficiency = 0;
 
   @override
   void initState() {
     super.initState();
     startScan();
-    Timer.periodic(const Duration(seconds: 1), (_) => updateDashboard());
   }
 
-  void startScan() async {
-    await flutterBlue.startScan(timeout: const Duration(seconds: 5));
-
+  void startScan() {
+    flutterBlue.startScan(timeout: Duration(seconds: 5));
     scanSub = flutterBlue.scanResults.listen((results) {
-      for (var r in results) {
-        // For demo: if device name contains "Cadence", read its data
-        if ((r.device.name ?? "").contains("Cadence")) {
-          // In real app, connect & subscribe to characteristics
-          // Here we simulate:
-          setState(() {
-            cadence = Random().nextInt(60) + 60; // 60-120 RPM
-            power = Random().nextInt(150) + 100; // 100-250 W
-            hr = Random().nextInt(40) + 120; // 120-160 bpm
-          });
-        }
-      }
+      setState(() {
+        devices = results.map((r) => r.device).toList();
+      });
     });
+  }
+
+  void stopScan() async {
+    await flutterBlue.stopScan();
+    scanSub?.cancel();
+  }
+
+  void updateEfficiency(double bpm, double pacePerKm) {
+    // Example: efficiency = pace per bpm ratio
+    double efficiency = pacePerKm / bpm * 100;
+    setState(() {
+      currentEfficiency = efficiency;
+      efficiencyData.add(efficiency);
+      if (efficiencyData.length > 50) efficiencyData.removeAt(0);
+    });
+  }
+
+  Color getEfficiencyColor(double value) {
+    if (value > 70) return Colors.green;
+    if (value < 40) return Colors.red;
+    return Colors.orange;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('GoldilocksAI Ride Dashboard')),
+      body: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Text(
+              'Current Efficiency: ${currentEfficiency.toStringAsFixed(1)}',
+              style: TextStyle(
+                  fontSize: 22, color: getEfficiencyColor(currentEfficiency)),
+            ),
+            SizedBox(height: 20),
+            Expanded(
+              child: LineChart(
+                LineChartData(
+                  minY: 0,
+                  maxY: 120,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: efficiencyData
+                          .asMap()
+                          .entries
+                          .map((e) => FlSpot(e.key.toDouble(), e.value))
+                          .toList(),
+                      isCurved: true,
+                      colors: [getEfficiencyColor(currentEfficiency)],
+                      barWidth: 3,
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
+                  ),
+                  gridData: FlGridData(show: true),
+                  borderData: FlBorderData(show: true),
+                ),
+              ),
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+                onPressed: () => updateEfficiency(100, 5.2),
+                child: Text('Simulate Update')),
+            ElevatedButton(
+                onPressed: startScan, child: Text('Start BLE Scan')),
+            ElevatedButton(
+                onPressed: stopScan, child: Text('Stop BLE Scan')),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
     scanSub?.cancel();
-    flutterBlue.stopScan();
     super.dispose();
-  }
-
-  void updateDashboard() {
-    // Efficiency calculation
-    if (hr != 0) efficiency = power / hr;
-
-    // Simple optimizer: pick cadence giving max efficiency (demo)
-    optimalCadence = cadence < 90 ? cadence + 5 : cadence - 5;
-
-    setState(() {
-      cadenceHistory.add(cadence);
-      optimalHistory.add(optimalCadence);
-      efficiencyHistory.add(efficiency);
-      if (cadenceHistory.length > 20) {
-        cadenceHistory.removeAt(0);
-        optimalHistory.removeAt(0);
-        efficiencyHistory.removeAt(0);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isOptimal = (cadence - optimalCadence).abs() <= 5;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text("GoldilocksAI Dashboard")),
-      body: Column(
-        children: [
-          Container(
-            color: isOptimal ? Colors.green[300] : Colors.red[300],
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text("Cadence: $cadence RPM", style: const TextStyle(fontSize: 20)),
-                Text("Optimal: $optimalCadence RPM", style: const TextStyle(fontSize: 20)),
-                Text("Efficiency: ${efficiency.toStringAsFixed(2)} W/bpm", style: const TextStyle(fontSize: 20)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: charts.LineChart(
-              [
-                charts.Series<int, int>(
-                  id: 'Cadence',
-                  colorFn: (_, __) => charts.MaterialPalette.blue.shadeDefault,
-                  domainFn: (i, idx) => idx!,
-                  measureFn: (i, _) => cadenceHistory[_],
-                  data: List.generate(cadenceHistory.length, (i) => i),
-                ),
-                charts.Series<int, int>(
-                  id: 'Optimal',
-                  colorFn: (_, __) => charts.MaterialPalette.green.shadeDefault,
-                  domainFn: (i, idx) => idx!,
-                  measureFn: (i, _) => optimalHistory[_],
-                  data: List.generate(optimalHistory.length, (i) => i),
-                ),
-              ],
-              animate: true,
-              primaryMeasureAxis: charts.NumericAxisSpec(
-                viewport: charts.NumericExtents(50, 200),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
