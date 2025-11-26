@@ -26,9 +26,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// -----------------------------
-// Bluetooth Device Selection
-// -----------------------------
 class DeviceSelectionScreen extends StatelessWidget {
   const DeviceSelectionScreen({super.key});
 
@@ -37,7 +34,7 @@ class DeviceSelectionScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text("Select Sensor")),
       body: StreamBuilder<List<ScanResult>>(
-        stream: FlutterBluePlus.scanResults,   // ✅ use scanResults stream
+        stream: FlutterBluePlus.scanResults,
         initialData: const [],
         builder: (context, snapshot) {
           final results = snapshot.data ?? [];
@@ -59,15 +56,12 @@ class DeviceSelectionScreen extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         child: const Icon(Icons.refresh),
-        onPressed: () => FlutterBluePlus.startScan(timeout: const Duration(seconds: 4)), // ✅ updated API
+        onPressed: () => FlutterBluePlus.startScan(timeout: const Duration(seconds: 4)),
       ),
     );
   }
 }
 
-// -----------------------------
-// Ride State / Optimizer
-// -----------------------------
 class RideState extends ChangeNotifier {
   int cadence = 0;
   int power = 0;
@@ -84,7 +78,7 @@ class RideState extends ChangeNotifier {
     device = d;
     await device!.connect(
       autoConnect: false,
-      license: License.bsd,   // ✅ required parameter
+      license: License("bsd"),   // ✅ fixed
     );
 
     final services = await device!.discoverServices();
@@ -138,9 +132,6 @@ class RideState extends ChangeNotifier {
   }
 }
 
-// -----------------------------
-// Ride Dashboard
-// -----------------------------
 class RideDashboard extends StatelessWidget {
   const RideDashboard({super.key});
 
@@ -201,5 +192,4 @@ class RideDashboard extends StatelessWidget {
     );
   }
 }
-
 
