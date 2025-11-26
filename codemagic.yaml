@@ -6,32 +6,17 @@ workflows:
       xcode: latest
       cocoapods: default
     scripts:
-      # Ensure the latest code is pulled
       - name: Pull latest code
         script: git pull origin main
 
-      # Clean Flutter build artifacts
       - name: Flutter clean
         script: |
           flutter clean
           rm -rf ios/Pods ios/Podfile.lock ios/Flutter/Flutter.framework
 
-      # Get Flutter dependencies
       - name: Get Flutter packages
         script: flutter pub get
-
-      # Install CocoaPods dependencies
-      - name: Install iOS pods
-        script: pod repo update && pod install --project-directory=ios
-
-      # Build the iOS app
-      - name: Build iOS
-        script: flutter build ios --release
-
-    publishing:
-      scripts:
-        - echo "iOS build finished successfully."
-
-    # Disable caching to avoid stale build issues
     cache:
-      cache_build: false
+      cache_paths:
+        - ~/.pub-cache
+        - ios/Pods
