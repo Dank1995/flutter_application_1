@@ -1,20 +1,37 @@
 workflows:
-  ios-workflow:
-    name: iOS Build Workflow
-    max_build_duration: 60
+  ios-clean-build:
+    name: iOS Clean Build for flutter_application_1
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
-      - name: Clean project
+      # Ensure the latest code is pulled
+      - name: Pull latest code
+        script: git pull origin main
+
+      # Clean Flutter build artifacts
+      - name: Flutter clean
         script: |
           flutter clean
-      - name: Get dependencies
-        script: |
-          flutter pub get
-      - name: Build iOS release
-        script: |
-          flutter build ios --release --no-codesign
-    artifacts:
-      - build/ios/iphoneos/Runner.app
+          rm -rf ios/Pods ios/Podfile.lock ios/Flutter/Flutter.framework
+
+      # Get Flutter dependencies
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      # Install CocoaPods dependencies
+      - name: Install iOS pods
+        script: pod repo update && pod install --project-directory=ios
+
+      # Build the iOS app
+      - name: Build iOS
+        script: flutter build ios --release
+
+    publishing:
+      scripts:
+        - echo "iOS build finished successfully."
+
+    # Disable caching to avoid stale build issues
+    cache:
+      cache_build: false
