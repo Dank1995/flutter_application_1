@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';   // ✅ chart import
+import 'package:fl_chart/fl_chart.dart';
 
 void main() {
   runApp(
@@ -37,15 +37,15 @@ class DeviceSelectionScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text("Select Sensor")),
       body: StreamBuilder<List<BluetoothDevice>>(
-        stream: FlutterBluePlus.instance.connectedDevices.asStream(),
+        stream: FlutterBluePlus.connectedDevicesStream,   // ✅ updated API
         initialData: const [],
         builder: (context, snapshot) {
           final devices = snapshot.data ?? [];
           return ListView(
             children: devices
                 .map((d) => ListTile(
-                      title: Text(d.name.isEmpty ? d.id.toString() : d.name),
-                      subtitle: Text(d.id.toString()),
+                      title: Text(d.name.isEmpty ? d.remoteId.toString() : d.name),
+                      subtitle: Text(d.remoteId.toString()),
                       onTap: () async {
                         await Provider.of<RideState>(context, listen: false)
                             .connectToDevice(d);
@@ -62,7 +62,7 @@ class DeviceSelectionScreen extends StatelessWidget {
       ),
       floatingActionButton: FloatingActionButton(
         child: const Icon(Icons.refresh),
-        onPressed: () => FlutterBluePlus.instance.startScan(timeout: const Duration(seconds: 4)),
+        onPressed: () => FlutterBluePlus.startScan(timeout: const Duration(seconds: 4)), // ✅ updated API
       ),
     );
   }
@@ -85,14 +85,14 @@ class RideState extends ChangeNotifier {
 
   Future<void> connectToDevice(BluetoothDevice d) async {
     device = d;
-    await device!.connect(autoConnect: false);
+    await device!.connect(autoConnect: false, license: "PhysiologicalOptimiser"); // ✅ license required
 
     final services = await device!.discoverServices();
     for (var service in services) {
       for (var char in service.characteristics) {
         if (char.properties.notify) {
           await char.setNotifyValue(true);
-          characteristicSub = char.value.listen((data) {
+          characteristicSub = char.lastValueStream.listen((data) {   // ✅ updated API
             if (data.length >= 3) {
               cadence = data[0];
               power = data[1];
