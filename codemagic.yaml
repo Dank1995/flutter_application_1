@@ -1,18 +1,22 @@
 workflows:
   ios-workflow:
-    name: iOS Build
+    name: iOS BLE Build
+    max_build_duration: 60
     environment:
       vars:
-        APP_IDENTIFIER: GoldilocksAI
-        APPLE_ISSUER_ID: 9a5a245e-98aa-4eb2-8b80-866b48d1d4ad
-        APPLE_KEY_ID: CAM9PCSW27
-        CERTIFICATE_PATH: /path/to/AuthKey_CAM9PCSW27.p8
+        FLUTTER_BUILD_MODE: release
+      flutter: stable
+      xcode: latest
     scripts:
-      - name: Install dependencies
+      - name: Install Flutter packages
         script: flutter pub get
       - name: Build IPA
-        script: flutter build ipa --release --export-options-plist=ios/Runner/ExportOptions.plist
+        script: flutter build ipa --export-options-plist ios/ExportOptions.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
     publishing:
-      app_store_connect:
-        apple_id: kornaus@hotmail.com
-        team_id: <your_team_id>
+      email:
+        recipients:
+          - your_email@example.com
+        on_success: always
+        on_failure: always
