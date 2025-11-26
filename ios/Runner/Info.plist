@@ -8,7 +8,9 @@
     <key>CFBundleDisplayName</key>
     <string>PhysiologicalOptimiser</string>
     <key>CFBundleIdentifier</key>
-    <string>PhysiologicalOptimiser</string>
+    <string>com.yourcompany.physiologicaloptimiser</string>
+    <key>CFBundleExecutable</key>
+    <string>Runner</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
