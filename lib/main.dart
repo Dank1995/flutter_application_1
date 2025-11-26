@@ -18,7 +18,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cadence Coach',
+      title: 'GoldilocksAI',
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const MyHomePage(),
     );
@@ -36,7 +36,10 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final FlutterBluePlus flutterBlue = FlutterBluePlus.instance;
-  StreamSubscription<ScanResult>? scanSubscription;
+
+  StreamSubscription? scanSubscription;
+  BluetoothDevice? cadenceDevice;
+  BluetoothDevice? hrDevice;
 
   int currentCadence = 0;
   int currentPower = 0;
@@ -55,57 +58,55 @@ class _MyHomePageState extends State<MyHomePage> {
   int timeSec = 0;
   Timer? timer;
 
-  BluetoothDevice? cadenceDevice;
-  BluetoothDevice? hrDevice;
-
   @override
   void dispose() {
-    scanSubscription?.cancel();
+    stopScan();
     timer?.cancel();
+    cadenceDevice?.disconnect();
+    hrDevice?.disconnect();
     super.dispose();
   }
 
-  void startScanning() {
-    // Start BLE scan
-    scanSubscription = flutterBlue.startScan(timeout: const Duration(seconds: 5)).listen((scanResult) {
-      final device = scanResult.device;
-      print("Found device: ${device.name}");
-
-      // Example: select devices by name
-      if (device.name.contains("Cadence") && cadenceDevice == null) {
-        cadenceDevice = device;
-        connectDevice(cadenceDevice!);
+  void startScan() {
+    scanSubscription = flutterBlue
+        .scan(timeout: const Duration(seconds: 5))
+        .listen((scanResult) async {
+      // Assign devices based on name
+      if (scanResult.device.name.contains("Cadence")) {
+        cadenceDevice = scanResult.device;
+        await connectDevice(cadenceDevice!);
       }
-      if (device.name.contains("HR") && hrDevice == null) {
-        hrDevice = device;
-        connectDevice(hrDevice!);
+      if (scanResult.device.name.contains("HR")) {
+        hrDevice = scanResult.device;
+        await connectDevice(hrDevice!);
       }
-    });
 
-    // Start fake metric timer for UI update
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // Simulate sensor values if no actual device
       int cadence = 70 + random.nextInt(40);
       int power = 100 + random.nextInt(150);
       int hr = 120 + random.nextInt(40);
       updateMetrics(cadence, power, hr);
+    });
+
+    // Timer for CSV logging
+    timer = Timer.periodic(const Duration(seconds: 1), (_) {
       logRide();
       timeSec++;
     });
   }
 
-  Future<void> stopScanning() async {
-    await flutterBlue.stopScan();
+  Future<void> stopScan() async {
     await scanSubscription?.cancel();
     scanSubscription = null;
-    timer?.cancel();
+    await flutterBlue.stopScan();
   }
 
   Future<void> connectDevice(BluetoothDevice device) async {
     try {
-      await device.connect(); // No License param needed in v2.0.2
-      print("Connected to ${device.name}");
+      await device.connect();
+      print('Connected to ${device.name}');
     } catch (e) {
-      print("Failed to connect: $e");
+      print('Failed to connect: $e');
     }
   }
 
@@ -148,7 +149,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Cadence Coach')),
+      appBar: AppBar(title: const Text('GoldilocksAI')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -175,8 +176,8 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: startScanning, child: const Text('Start Scan')),
-            ElevatedButton(onPressed: stopScanning, child: const Text('Stop Scan')),
+            ElevatedButton(onPressed: startScan, child: const Text('Start Scan')),
+            ElevatedButton(onPressed: stopScan, child: const Text('Stop Scan')),
             ElevatedButton(onPressed: exportCsv, child: const Text('Export CSV')),
           ],
         ),
