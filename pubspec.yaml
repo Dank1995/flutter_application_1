@@ -1,6 +1,8 @@
-name: cadence_coach
-description: A cycling cadence coach with efficiency optimizer and visual alerts
-version: 61.0.0+61  # Version 61
+name: goldilocks_ai
+description: A simple Flutter app to pick Bluetooth devices
+publish_to: "none" # Remove this if publishing to pub.dev
+
+version: 1.0.0+1
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -8,11 +10,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: ^2.0.2   # valid stable version
-  path_provider: ^2.0.15
-  csv: ^5.0.0
-  fl_chart: ^0.60.0
+  flutter_blue_plus: ^2.0.2
+  # Optional: for state management if needed
+  provider: ^6.0.5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^2.0.1
+
+flutter:
+  uses-material-design: true

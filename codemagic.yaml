@@ -1,5 +1,5 @@
 workflows:
-  ios-build:
+  ios-workflow:
     name: iOS Build
     environment:
       flutter: stable
@@ -7,10 +7,6 @@ workflows:
     scripts:
       - flutter clean
       - flutter pub get
-      - flutter build ios --release --no-codesign
+      - flutter build ios --release
     artifacts:
       - build/ios/ipa/*.ipa
-    publishing:
-      email:
-        recipients:
-          - your@email.com
