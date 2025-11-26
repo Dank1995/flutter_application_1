@@ -192,4 +192,18 @@ class BleScannerPage extends StatelessWidget {
               final name = d.name.isNotEmpty ? d.name : "Unknown";
               return ListTile(
                 title: Text(name),
- 
+                subtitle: Text(d.id),
+                onTap: () {
+                  ble.connect(d.id, ride);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Connecting to $name")),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
