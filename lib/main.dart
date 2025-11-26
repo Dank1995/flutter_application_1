@@ -76,10 +76,7 @@ class RideState extends ChangeNotifier {
 
   Future<void> connectToDevice(BluetoothDevice d) async {
     device = d;
-    await device!.connect(
-      autoConnect: false,
-      license: License.gpl,   // ✅ use a valid enum value
-    );
+    await device!.connect(autoConnect: false); // ✅ license removed
 
     final services = await device!.discoverServices();
     for (var service in services) {
