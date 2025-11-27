@@ -15,6 +15,11 @@
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+
+    <!-- REQUIRED for App Store validation -->
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
     <key>UIMainStoryboardFile</key>
