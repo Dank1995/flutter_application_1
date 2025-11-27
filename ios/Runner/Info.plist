@@ -13,8 +13,9 @@
     <string>Runner</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+    <!-- Bumped build number -->
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
 
     <!-- REQUIRED for App Store validation -->
     <key>CFBundlePackageType</key>
