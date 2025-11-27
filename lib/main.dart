@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -29,14 +28,19 @@ class MyApp extends StatelessWidget {
 }
 
 // -----------------------------
-// Ride State
+// Ride State with Optimiser
 // -----------------------------
 class RideState extends ChangeNotifier {
   int cadence = 0;
   int power = 0;
   int hr = 0;
-  int optimalCadence = 90;
   double efficiency = 0;
+
+  // Sliding window of last N samples (short window for responsiveness)
+  final int windowSize = 5;
+  final List<Map<String, dynamic>> recentEff = [];
+
+  int optimalCadence = 90; // dynamically updated
 
   void setHr(int value) {
     hr = value;
@@ -45,7 +49,7 @@ class RideState extends ChangeNotifier {
 
   void setCadence(int value) {
     cadence = value;
-    notifyListeners();
+    _updateEfficiency();
   }
 
   void setPower(int value) {
@@ -54,8 +58,42 @@ class RideState extends ChangeNotifier {
   }
 
   void _updateEfficiency() {
-    if (hr > 0) efficiency = power / hr;
+    if (hr > 0) {
+      efficiency = power / hr;
+
+      // Add to sliding window
+      recentEff.add({
+        "cadence": cadence,
+        "efficiency": efficiency,
+      });
+      if (recentEff.length > windowSize) {
+        recentEff.removeAt(0);
+      }
+
+      // Update optimal cadence dynamically
+      optimalCadence = _predictOptimalCadence();
+    }
     notifyListeners();
+  }
+
+  int _predictOptimalCadence() {
+    if (recentEff.isEmpty) return 90; // fallback
+
+    // Group efficiencies by cadence
+    final Map<int, List<double>> cadEff = {};
+    for (var entry in recentEff) {
+      int cad = entry["cadence"];
+      double eff = entry["efficiency"];
+      cadEff.putIfAbsent(cad, () => []).add(eff);
+    }
+
+    // Find cadence with highest avg efficiency
+    int optimalCad = cadEff.entries
+        .map((e) => MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
+        .reduce((a, b) => a.value > b.value ? a : b)
+        .key;
+
+    return optimalCad;
   }
 
   String get shiftMessage {
@@ -68,7 +106,8 @@ class RideState extends ChangeNotifier {
     return "Cadence optimal ($optimalCadence RPM)";
   }
 
-  Color get alertColor => (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
+  Color get alertColor =>
+      (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
 }
 
 // -----------------------------
@@ -121,7 +160,6 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 
   Future<void> _ensurePermissions() async {
-    // Android runtime permissions only
     if (await Permission.locationWhenInUse.isDenied) {
       await Permission.locationWhenInUse.request();
     }
@@ -131,7 +169,6 @@ class _RideDashboardState extends State<RideDashboard> {
     if (await Permission.bluetoothConnect.isDenied) {
       await Permission.bluetoothConnect.request();
     }
-    // iOS: handled via Info.plist
   }
 
   @override
@@ -156,8 +193,14 @@ class _RideDashboardState extends State<RideDashboard> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(ride.shiftMessage,
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: ride.alertColor)),
+            Text(
+              ride.shiftMessage,
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: ride.alertColor,
+              ),
+            ),
             const SizedBox(height: 20),
             Text("Cadence: ${ride.cadence} RPM"),
             Text("Power: ${ride.power} W"),
