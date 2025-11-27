@@ -34,6 +34,10 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
+    <!-- Encryption compliance -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+
     <!-- Bluetooth entitlements -->
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app uses Bluetooth to connect to workout sensors.</string>
