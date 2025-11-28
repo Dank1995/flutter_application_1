@@ -1,9 +1,9 @@
 name: physiological_optimiser
 description: Physiological Optimiser workout app with cadence optimizer
-version: 1.0.0+4
+version: 1.0.0+4   # bumped build number
 
 environment:
-  sdk: ">=2.18.0 <4.0.0"
+  sdk: ">=2.18.0 <3.0.0"
 
 dependencies:
   flutter:
