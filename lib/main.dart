@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -35,14 +36,13 @@ class MyApp extends StatelessWidget {
 // Ride State with Optimiser
 // -----------------------------
 class RideState extends ChangeNotifier {
-  int cadence = 0;
-  int power = 0;
-  int hr = 0;
+  int cadence = 0; // RPM
+  int power = 0;   // Watts
+  int hr = 0;      // BPM
   double efficiency = 0;
 
   final int windowSize = 5;
   final List<Map<String, dynamic>> recentEff = [];
-
   int optimalCadence = 90;
 
   void setHr(int value) {
@@ -122,13 +122,13 @@ class BleManager {
   final Uuid heartRateMeasurement =
       Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  // Running Speed & Cadence
+  // Standard Running Speed & Cadence
   final Uuid speedCadenceService =
       Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
   final Uuid rscMeasurement =
       Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
 
-  // Cycling Power
+  // Standard Cycling Power
   final Uuid cyclingPowerService =
       Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
   final Uuid powerMeasurement =
@@ -155,29 +155,24 @@ class BleManager {
           if (data.length > 1) ride.setHr(data[1]);
         });
 
-        // --- Cadence via RSC Measurement ---
+        // --- RSC Measurement for Cadence ---
         final rscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: speedCadenceService,
           characteristicId: rscMeasurement,
         );
-
         _ble.subscribeToCharacteristic(rscChar).listen((data) {
-          if (data.isEmpty) return;
+          if (data.length >= 4) {
+            // Parse according to RSC Measurement spec
+            // data[0]: flags
+            // data[1,2]: instantaneous speed (ignored here)
+            // data[3,4]: instantaneous cadence in steps/min (uint8 or uint16 depending on flags)
+            int cadenceValue = data[2]; // default assumption: data[2] = cadence in RPM
+            // Some devices use stride frequency (in Hz) -> multiply by 60
+            // Uncomment if needed: cadenceValue = (data[2] / 2) * 60;
 
-          final flags = data[0];
-          bool strideLenPresent = (flags & 0x01) != 0;
-          bool totalDistPresent = (flags & 0x02) != 0;
-          bool running = (flags & 0x04) != 0;
-
-          int offset = 1;
-
-          // Instantaneous speed (2 bytes) - we skip
-          offset += 2;
-
-          // Cadence is next byte (1 byte)
-          int cadenceValue = data[offset];
-          ride.setCadence(cadenceValue);
+            ride.setCadence(cadenceValue);
+          }
         });
 
         // --- Power ---
@@ -188,7 +183,7 @@ class BleManager {
         );
         _ble.subscribeToCharacteristic(powerChar).listen((data) {
           if (data.length >= 2) {
-            final power = data[0] | (data[1] << 8);
+            final power = data[0] | (data[1] << 8); // little-endian
             ride.setPower(power);
           }
         });
