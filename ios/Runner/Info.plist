@@ -20,7 +20,7 @@
     
     <!-- Bumped build number -->
     <key>CFBundleVersion</key>
-    <string>12</string>
+    <string>13</string>
     
     <!-- REQUIRED for App Store validation -->
     <key>CFBundlePackageType</key>
