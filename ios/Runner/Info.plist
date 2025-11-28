@@ -3,43 +3,53 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
+
     <key>CFBundleDisplayName</key>
     <string>PhysiologicalOptimiser</string>
+
     <key>CFBundleIdentifier</key>
     <string>com.yourcompany.PhysiologicalOptimiser</string>
+
     <key>CFBundleExecutable</key>
     <string>Runner</string>
+
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+
     <key>CFBundleVersion</key>
-    <string>4</string>
-
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
+    <string>5</string>
 
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 
+    <!-- BLE Permissions -->
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app uses Bluetooth to connect to workout sensors.</string>
+    <string>This app uses Bluetooth to connect to running and cycling sensors.</string>
 
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app uses Bluetooth to connect to fitness sensors.</string>
+
+    <key>NSBluetoothPrivacyBluetoothScanUsageDescription</key>
+    <string>This app scans for nearby Bluetooth devices like Stryd and cycling meters.</string>
+
+    <key>NSBluetoothPrivacyBluetoothConnectUsageDescription</key>
+    <string>This app connects to sensors for workout analysis.</string>
+
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location is required to allow Bluetooth scanning for nearby sensors.</string>
+
+    <!-- Background Bluetooth -->
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>
         <string>bluetooth-peripheral</string>
     </array>
+
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+
 </dict>
 </plist>
