@@ -27,10 +27,9 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ===============================
-// RIDE STATE
-// ===============================
-
+// -----------------------------
+// Ride State with Optimiser
+// -----------------------------
 class RideState extends ChangeNotifier {
   int cadence = 0;
   int power = 0;
@@ -65,9 +64,7 @@ class RideState extends ChangeNotifier {
         "cadence": cadence,
         "efficiency": efficiency,
       });
-      if (recentEff.length > windowSize) {
-        recentEff.removeAt(0);
-      }
+      if (recentEff.length > windowSize) recentEff.removeAt(0);
 
       optimalCadence = _predictOptimalCadence();
     }
@@ -84,12 +81,11 @@ class RideState extends ChangeNotifier {
       cadEff.putIfAbsent(cad, () => []).add(eff);
     }
 
-    int optimalCad = cadEff.entries
-        .map((e) => MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
+    return cadEff.entries
+        .map((e) =>
+            MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
         .reduce((a, b) => a.value > b.value ? a : b)
         .key;
-
-    return optimalCad;
   }
 
   String get shiftMessage {
@@ -106,26 +102,29 @@ class RideState extends ChangeNotifier {
       (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
 }
 
-// ===============================
-// BLE MANAGER (STRYD + CYCLING)
-// ===============================
-
+// -----------------------------
+// BLE Manager
+// -----------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  // Standard Services
-  final Uuid heartRateService = Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
-  final Uuid heartRateMeasurement = Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
+  // Heart Rate
+  final Uuid heartRateService =
+      Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
+  final Uuid heartRateMeasurement =
+      Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  final Uuid speedCadenceService = Uuid.parse("00001816-0000-1000-8000-00805F9B34FB");
-  final Uuid scMeasurement = Uuid.parse("00002A5B-0000-1000-8000-00805F9B34FB");
+  // Stryd Cadence
+  final Uuid speedCadenceService =
+      Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
+  final Uuid scMeasurement =
+      Uuid.parse("00002A5B-0000-1000-8000-00805F9B34FB");
 
-  final Uuid cyclingPowerService = Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
-  final Uuid powerMeasurement = Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
-
-  // STRYD Custom UUIDs
-  final Uuid strydService = Uuid.parse("F0000001-0451-4000-B000-000000000000");
-  final Uuid strydPower = Uuid.parse("F0000002-0451-4000-B000-000000000000");
+  // Cycling Power
+  final Uuid cyclingPowerService =
+      Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
+  final Uuid powerMeasurement =
+      Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
 
   Stream<List<DiscoveredDevice>> scan() {
     final devices = <DiscoveredDevice>[];
@@ -136,12 +135,9 @@ class BleManager {
   }
 
   Future<void> connect(String deviceId, RideState ride) async {
-    int? lastCrankRevs;
-    int? lastEventTime;
-
     _ble.connectToDevice(id: deviceId).listen((update) {
       if (update.connectionState == DeviceConnectionState.connected) {
-        // HEART RATE
+        // Heart Rate
         final hrChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: heartRateService,
@@ -151,34 +147,17 @@ class BleManager {
           if (data.length > 1) ride.setHr(data[1]);
         });
 
-        // CADENCE
+        // Cadence
         final cadChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: speedCadenceService,
           characteristicId: scMeasurement,
         );
         _ble.subscribeToCharacteristic(cadChar).listen((data) {
-          if (data.isNotEmpty) {
-            final flags = data[0];
-            if ((flags & 0x02) != 0 && data.length >= 5) {
-              final crankRevs = data[1] | (data[2] << 8);
-              final eventTime = data[3] | (data[4] << 8);
-
-              if (lastCrankRevs != null && lastEventTime != null) {
-                final revDelta = crankRevs - lastCrankRevs!;
-                final timeDelta = (eventTime - lastEventTime!) & 0xFFFF;
-                if (timeDelta > 0) {
-                  final cadenceRpm = (revDelta * 60.0 * 1024.0) / timeDelta;
-                  ride.setCadence(cadenceRpm.round());
-                }
-              }
-              lastCrankRevs = crankRevs;
-              lastEventTime = eventTime;
-            }
-          }
+          if (data.length > 1) ride.setCadence(data[1]);
         });
 
-        // CYCLING POWER
+        // Cycling Power
         final powerChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: cyclingPowerService,
@@ -186,22 +165,9 @@ class BleManager {
         );
         _ble.subscribeToCharacteristic(powerChar).listen((data) {
           if (data.length >= 4) {
-            final raw = data[2] | (data[3] << 8);
-            final signed = raw >= 0x8000 ? raw - 0x10000 : raw;
+            final val = data[2] | (data[3] << 8);
+            final signed = val >= 0x8000 ? val - 0x10000 : val;
             ride.setPower(signed);
-          }
-        });
-
-        // STRYD RUNNING POWER
-        final strydChar = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: strydService,
-          characteristicId: strydPower,
-        );
-        _ble.subscribeToCharacteristic(strydChar).listen((data) {
-          if (data.length >= 2) {
-            final watts = data[0] | (data[1] << 8);
-            ride.setPower(watts);
           }
         });
       }
@@ -209,10 +175,9 @@ class BleManager {
   }
 }
 
-// ===============================
-// DASHBOARD
-// ===============================
-
+// -----------------------------
+// Ride Dashboard
+// -----------------------------
 class RideDashboard extends StatefulWidget {
   const RideDashboard({super.key});
   @override
@@ -258,10 +223,9 @@ class _RideDashboardState extends State<RideDashboard> {
             Text(
               ride.shiftMessage,
               style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: ride.alertColor,
-              ),
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: ride.alertColor),
             ),
             const SizedBox(height: 20),
             Text("Cadence: ${ride.cadence} RPM"),
@@ -275,10 +239,9 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 }
 
-// ===============================
-// SCANNER
-// ===============================
-
+// -----------------------------
+// BLE Scanner Page
+// -----------------------------
 class BleScannerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -302,8 +265,7 @@ class BleScannerPage extends StatelessWidget {
                 onTap: () {
                   ble.connect(d.id, ride);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Connecting to $name")),
-                  );
+                      SnackBar(content: Text("Connecting to $name")));
                 },
               );
             },
