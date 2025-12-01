@@ -1,6 +1,6 @@
 name: physiological_optimiser
 description: Physiological Optimiser workout app with cadence optimizer
-version: 1.0.0+22
+version: 1.0.0+23
 
 environment:
   sdk: ">=2.18.0 <3.0.0"

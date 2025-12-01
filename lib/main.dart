@@ -5,8 +5,16 @@ import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final dir = await getApplicationDocumentsDirectory();
+  await Hive.initFlutter(dir.path);
+  await Hive.openBox('workouts');
+
   runApp(
     MultiProvider(
       providers: [
@@ -46,9 +54,10 @@ class RideState extends ChangeNotifier {
   final int windowSize = 10;
   final List<Map<String, dynamic>> recentEff = [];
   final List<double> monthlyEff = [];
+  String mode = "Cycling"; // Cycling or Running
+  final Box workouts = Hive.box('workouts');
 
   int optimalCadence = 90;
-  String mode = "Cycling"; // Cycling or Running
 
   void setHr(int value) {
     hr = value;
@@ -71,7 +80,7 @@ class RideState extends ChangeNotifier {
   }
 
   void _updateEfficiency() {
-    if (hr > 0) {
+    if (hr > 0 && power > 0) {
       efficiency = power / hr;
 
       recentEff.add({
@@ -80,10 +89,19 @@ class RideState extends ChangeNotifier {
       });
       if (recentEff.length > windowSize) recentEff.removeAt(0);
 
-      // Add to monthly efficiency history
       monthlyEff.add(efficiency);
 
       optimalCadence = _predictOptimalCadence();
+
+      // Log to Hive
+      workouts.add({
+        'timestamp': DateTime.now().toIso8601String(),
+        'cadence': cadence,
+        'power': power,
+        'hr': hr,
+        'efficiency': efficiency,
+        'mode': mode,
+      });
     }
     notifyListeners();
   }
@@ -124,19 +142,16 @@ class RideState extends ChangeNotifier {
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  // Heart Rate (standard)
   final Uuid heartRateService =
       Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
   final Uuid heartRateMeasurement =
       Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  // RSC (Running Speed & Cadence)
   final Uuid rscService =
       Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
   final Uuid rscMeasurement =
       Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
 
-  // Cycling Power
   final Uuid cyclingPowerService =
       Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
   final Uuid powerMeasurement =
@@ -158,15 +173,8 @@ class BleManager {
     return v >= 0x8000 ? v - 0x10000 : v;
   }
 
-  int _u32(List<int> b, int offset) {
-    return (b[offset] & 0xFF) |
-        ((b[offset + 1] & 0xFF) << 8) |
-        ((b[offset + 2] & 0xFF) << 16) |
-        ((b[offset + 3] & 0xFF) << 24);
-  }
-
   Future<void> connect(String deviceId, RideState ride) async {
-    _ble.connectToDevice(id: deviceId).listen((update) async {
+    _ble.connectToDevice(id: deviceId).listen((update) {
       if (update.connectionState == DeviceConnectionState.connected) {
         print("Connected to $deviceId");
 
@@ -196,33 +204,27 @@ class BleManager {
           serviceId: rscService,
           characteristicId: rscMeasurement,
         );
-
         _ble.subscribeToCharacteristic(rscChar).listen((data) {
-          try {
-            if (data.isEmpty) return;
-            final bytes = List<int>.from(data);
-            final flags = bytes[0] & 0xFF;
-            final strideLenPresent = (flags & 0x01) != 0;
-            int offset = 1;
-            int rawCadence = 0;
+          if (data.isEmpty) return;
+          final bytes = List<int>.from(data);
+          final flags = bytes[0] & 0xFF;
+          int offset = 1;
+          int rawCadence = 0;
 
-            if (ride.mode == "Running") {
-              if (bytes.length > offset) rawCadence = (bytes[offset] & 0xFF) * 2; // corrected for Stryd
-            } else {
-              if (bytes.length > offset) rawCadence = bytes[offset] & 0xFF; // cycling or Rally pedals
-            }
+          if (ride.mode == "Running") {
+            if (bytes.length > offset) rawCadence = (bytes[offset] & 0xFF) * 2;
+          } else {
+            if (bytes.length > offset) rawCadence = bytes[offset] & 0xFF;
+          }
 
-            if (rawCadence > 0 && rawCadence < 300) {
-              ride.setCadence(rawCadence);
-            } else {
-              ride.setCadence(0);
-            }
-          } catch (e) {
-            print("RSC parse error: $e raw:$data");
+          if (rawCadence > 0 && rawCadence < 300) {
+            ride.setCadence(rawCadence);
+          } else {
+            ride.setCadence(0);
           }
         });
 
-        print("Subscribed to HR, Power, RSC notifications in ${ride.mode} mode");
+        print("Subscribed to HR, Power, RSC in ${ride.mode} mode");
       }
     }, onError: (e) {
       print("Connection error: $e");
@@ -261,6 +263,7 @@ class _RideDashboardState extends State<RideDashboard> {
   @override
   Widget build(BuildContext context) {
     final ride = Provider.of<RideState>(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Ride Dashboard"),
@@ -272,6 +275,15 @@ class _RideDashboardState extends State<RideDashboard> {
               const PopupMenuItem(value: "Running", child: Text("Running Mode")),
             ],
             icon: const Icon(Icons.directions_bike),
+          ),
+          IconButton(
+            icon: const Icon(Icons.bar_chart),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MonthlyEfficiencyPage()),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.bluetooth_searching),
@@ -303,8 +315,7 @@ class _RideDashboardState extends State<RideDashboard> {
                   Text("Cadence: ${ride.cadence} RPM"),
                   Text("Power: ${ride.power} W"),
                   Text("Heart Rate: ${ride.hr} BPM"),
-                  Text(
-                      "Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
+                  Text("Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
                 ],
               ),
             ),
@@ -319,16 +330,14 @@ class _RideDashboardState extends State<RideDashboard> {
                 minY: 0,
                 maxY: ride.recentEff
                         .map((e) => e["efficiency"] as double)
-                        .fold<double>(
-                            0, (prev, e) => e > prev ? e : prev) +
+                        .fold<double>(0, (prev, e) => e > prev ? e : prev) +
                     10,
                 lineBarsData: [
                   LineChartBarData(
                     spots: ride.recentEff
                         .asMap()
                         .entries
-                        .map((e) =>
-                            FlSpot(e.key.toDouble(), e.value["efficiency"]))
+                        .map((e) => FlSpot(e.key.toDouble(), e.value["efficiency"]))
                         .toList(),
                     isCurved: true,
                     color: Colors.green,
@@ -338,8 +347,7 @@ class _RideDashboardState extends State<RideDashboard> {
                 ],
                 titlesData: FlTitlesData(
                   leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-                  bottomTitles:
-                      AxisTitles(sideTitles: SideTitles(showTitles: true)),
+                  bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
                 ),
               )),
             ),
@@ -383,6 +391,54 @@ class BleScannerPage extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+}
+
+// -----------------------------
+// Monthly Efficiency Page
+// -----------------------------
+class MonthlyEfficiencyPage extends StatelessWidget {
+  const MonthlyEfficiencyPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ride = Provider.of<RideState>(context);
+    final workouts = ride.workouts.values.toList();
+
+    final spots = workouts.asMap().entries.map((e) {
+      final eff = e.value['efficiency'] as double;
+      return FlSpot(e.key.toDouble(), eff);
+    }).toList();
+
+    double maxEff = workouts
+        .map((e) => e['efficiency'] as double)
+        .fold<double>(0, (prev, e) => e > prev ? e : prev);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Monthly Efficiency")),
+      body: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: LineChart(LineChartData(
+          minX: 0,
+          maxX: spots.isEmpty ? 1 : spots.last.x,
+          minY: 0,
+          maxY: maxEff + 10,
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              color: Colors.green,
+              barWidth: 3,
+              dotData: FlDotData(show: false),
+            ),
+          ],
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
+          ),
+        )),
       ),
     );
   }
