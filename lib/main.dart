@@ -1,5 +1,5 @@
 // lib/main.dart
-import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -17,12 +17,8 @@ void main() {
   );
 }
 
-// -----------------------------
-// App
-// -----------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -34,26 +30,31 @@ class MyApp extends StatelessWidget {
 }
 
 // -----------------------------
-// Ride State with Optimiser
+// Ride state with dynamic optimiser
 // -----------------------------
 class RideState extends ChangeNotifier {
-  int cadence = 0; // RPM
-  int power = 0; // Watts
-  int hr = 0; // BPM
-  double efficiency = 0;
+  int cadence = 0; // strides/min
+  int power = 0;   // Watts
+  int hr = 0;      // BPM
+  double efficiency = 0; // W/BPM
 
-  final int windowSize = 5;
-  final List<Map<String, dynamic>> recentEff = [];
+  final Map<int, List<double>> workoutEffBuckets = {};
+  final List<int> recentHr = [];
+  final int maxHrHistory = 12;
 
   int optimalCadence = 90;
+  double _optimalCadenceSmoothed = 90.0;
+  final double smoothingAlpha = 0.4;
 
   void setHr(int value) {
     hr = value;
+    recentHr.add(value);
+    if (recentHr.length > maxHrHistory) recentHr.removeAt(0);
     _updateEfficiency();
   }
 
-  void setCadence(int value) {
-    cadence = value;
+  void setCadence(int valueStridesPerMin) {
+    cadence = valueStridesPerMin;
     _updateEfficiency();
   }
 
@@ -65,67 +66,89 @@ class RideState extends ChangeNotifier {
   void _updateEfficiency() {
     if (hr > 0) {
       efficiency = power / hr;
-
-      recentEff.add({
-        "cadence": cadence,
-        "efficiency": efficiency,
-      });
-      if (recentEff.length > windowSize) recentEff.removeAt(0);
-
-      optimalCadence = _predictOptimalCadence();
+      final list = workoutEffBuckets.putIfAbsent(cadence, () => []);
+      list.add(efficiency);
+      if (list.length > 300) {
+        list.removeRange(0, list.length - 300);
+      }
+      final histOptimal = _predictDynamicOptimalCadence();
+      _optimalCadenceSmoothed =
+          smoothingAlpha * histOptimal + (1 - smoothingAlpha) * _optimalCadenceSmoothed;
+      optimalCadence = _optimalCadenceSmoothed.round();
     }
     notifyListeners();
   }
 
-  int _predictOptimalCadence() {
-    if (recentEff.isEmpty) return 90;
-    final Map<int, List<double>> cadEff = {};
-    for (var entry in recentEff) {
-      int cad = entry["cadence"];
-      double eff = entry["efficiency"];
-      cadEff.putIfAbsent(cad, () => []).add(eff);
+  double _weightedEffForCadence(int cad) {
+    final values = workoutEffBuckets[cad];
+    if (values == null || values.isEmpty) return 0.0;
+    double weight = 1.0;
+    const double decay = 0.9;
+    double sum = 0.0, totalWeight = 0.0;
+    for (var i = values.length - 1; i >= 0; i--) {
+      final v = values[i];
+      sum += v * weight;
+      totalWeight += weight;
+      weight *= decay;
+      if (weight < 1e-6) break;
     }
-    int optimalCad = cadEff.entries
-        .map((e) =>
-            MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
-        .reduce((a, b) => a.value > b.value ? a : b)
-        .key;
-    return optimalCad;
+    return sum / totalWeight;
+  }
+
+  int _predictDynamicOptimalCadence() {
+    if (workoutEffBuckets.isEmpty) return optimalCadence;
+    int bestCad = optimalCadence;
+    double bestEff = -double.infinity;
+    for (final cad in workoutEffBuckets.keys) {
+      final eff = _weightedEffForCadence(cad);
+      if (eff > bestEff) {
+        bestEff = eff;
+        bestCad = cad;
+      }
+    }
+    return bestCad;
+  }
+
+  int get _cadenceTolerance {
+    if (recentHr.length < 3) return 3;
+    final mean = recentHr.reduce((a, b) => a + b) / recentHr.length;
+    final variance = recentHr
+        .map((x) => (x - mean) * (x - mean))
+        .reduce((a, b) => a + b) / recentHr.length;
+    final std = math.sqrt(variance);
+    return std < 2 ? 2 : 3;
   }
 
   String get shiftMessage {
     final diff = cadence - optimalCadence;
-    if (diff.abs() > 5) {
+    if (diff.abs() > _cadenceTolerance) {
       return diff > 0
-          ? "Shift to higher gear ($optimalCadence RPM)"
-          : "Shift to lower gear ($optimalCadence RPM)";
+          ? "Decrease cadence toward $optimalCadence strides/min"
+          : "Increase cadence toward $optimalCadence strides/min";
     }
-    return "Cadence optimal ($optimalCadence RPM)";
+    return "Cadence optimal ($optimalCadence strides/min)";
   }
 
   Color get alertColor =>
-      (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
+      (cadence - optimalCadence).abs() > _cadenceTolerance ? Colors.red : Colors.green;
 }
 
 // -----------------------------
-// BLE Manager with robust parsing
+// BLE manager with corrected cadence parsing (no halving)
 // -----------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  // Heart Rate (standard)
   final Uuid heartRateService =
       Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
   final Uuid heartRateMeasurement =
       Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  // RSC (Running Speed & Cadence)
   final Uuid rscService =
       Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
   final Uuid rscMeasurement =
       Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
 
-  // Cycling Power
   final Uuid cyclingPowerService =
       Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
   final Uuid powerMeasurement =
@@ -139,20 +162,11 @@ class BleManager {
     });
   }
 
-  // helpers to read integers from byte arrays
   int _u16(List<int> b, int offset) =>
       (b[offset] & 0xFF) | ((b[offset + 1] & 0xFF) << 8);
-
   int _i16(List<int> b, int offset) {
     final v = _u16(b, offset);
     return v >= 0x8000 ? v - 0x10000 : v;
-  }
-
-  int _u32(List<int> b, int offset) {
-    return (b[offset] & 0xFF) |
-        ((b[offset + 1] & 0xFF) << 8) |
-        ((b[offset + 2] & 0xFF) << 16) |
-        ((b[offset + 3] & 0xFF) << 24);
   }
 
   Future<void> connect(String deviceId, RideState ride) async {
@@ -160,136 +174,75 @@ class BleManager {
       if (update.connectionState == DeviceConnectionState.connected) {
         print("Connected to $deviceId");
 
-        // --- Heart Rate (standard) ---
         final hrChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: heartRateService,
           characteristicId: heartRateMeasurement,
         );
         _ble.subscribeToCharacteristic(hrChar).listen((data) {
-          try {
-            if (data.length > 1) {
-              ride.setHr(data[1]);
-            }
-          } catch (e) {
-            print("HR parse error: $e");
+          if (data.length > 1) {
+            ride.setHr(data[1]);
           }
         });
 
-        // --- Cycling Power (correct spec parsing) ---
         final powerChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: cyclingPowerService,
           characteristicId: powerMeasurement,
         );
         _ble.subscribeToCharacteristic(powerChar).listen((data) {
-          try {
-            if (data.length >= 4) {
-              // Flags are 2 bytes (data[0..1]) - we don't need most flags here
-              // Instantaneous Power is signed int16 at data[2..3]
-              final int16Power = _i16(data, 2);
-              // Some devices use other offsets; but per BLE spec this is correct.
-              ride.setPower(int16Power);
-              print("Power raw: $data -> power=$int16Power W");
-            } else {
-              print("Power packet too short: $data");
-            }
-          } catch (e) {
-            print("Power parse error: $e  raw:$data");
+          if (data.length >= 4) {
+            final int16Power = _i16(List<int>.from(data), 2);
+            ride.setPower(int16Power);
           }
         });
 
-        // --- RSC Measurement (robust parsing and fallback) ---
         final rscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: rscService,
           characteristicId: rscMeasurement,
         );
-
         _ble.subscribeToCharacteristic(rscChar).listen((data) {
-          try {
-            if (data.isEmpty) return;
-            // convert to List<int>
-            final bytes = List<int>.from(data);
-            print("RSC raw: $bytes");
+          if (data.isEmpty) return;
+          final bytes = List<int>.from(data);
 
-            // Flags (1 byte)
-            final flags = bytes[0] & 0xFF;
-            final strideLenPresent = (flags & 0x01) != 0;
-            final totalDistPresent = (flags & 0x02) != 0;
-            final isRunning = (flags & 0x04) != 0;
+          // RSC flags at bytes[0]; speed (if present) at [1..2]; cadence at [3]
+          // We read cadence defensively in case flags vary.
+          final int flags = bytes[0] & 0xFF;
+          int offset = 1;
 
-            int offset = 1;
-
-            // Instantaneous speed (uint16) -- units: m/s * 256
-            double speedMs = 0.0;
-            if (bytes.length >= offset + 2) {
-              final rawSpeed = _u16(bytes, offset);
-              speedMs = rawSpeed / 256.0;
-            }
+          // If speed present (bit 0), skip speed (u16, 1/256 m/s)
+          if ((flags & 0x01) != 0 && bytes.length >= offset + 2) {
             offset += 2;
+          }
 
-            // Instantaneous cadence (uint8) - steps per minute (RPM)
-            int? cadenceFromRsc;
-            if (bytes.length > offset) {
-              cadenceFromRsc = bytes[offset] & 0xFF;
-            }
+          // Cadence present (bit 1); single byte, strides or steps per minute depending on device.
+          int? rawCadence;
+          if ((flags & 0x02) != 0 && bytes.length > offset) {
+            rawCadence = bytes[offset] & 0xFF;
             offset += 1;
+          }
 
-            // Optional stride length (uint16) in metres with resolution 1/100? (device-dependent)
-            double? strideLengthM;
-            if (strideLenPresent && bytes.length >= offset + 2) {
-              final rawStride = _u16(bytes, offset);
-              // Per RSC spec stride length is in metres with resolution 1/100 (i.e. value/100)
-              strideLengthM = rawStride / 100.0;
-              offset += 2;
-            }
+          int finalCadenceStrides = 0;
+          if (rawCadence != null && rawCadence > 0) {
+            // Use raw cadence directly as strides/min (no halving).
+            finalCadenceStrides = rawCadence;
+          }
 
-            // Optional total distance (uint32) - skip if present
-            if (totalDistPresent && bytes.length >= offset + 4) {
-              final totalDistRaw = _u32(bytes, offset);
-              // totalDistRaw is in metres with resolution 1/100 (device-dependent)
-              offset += 4;
-            }
-
-            int finalCadence = 0;
-            if (cadenceFromRsc != null && cadenceFromRsc > 0) {
-              finalCadence = cadenceFromRsc;
-            } else {
-              // Fallback: if speed and stride length available, compute cadence = (speed / strideLength) * 60
-              if (strideLengthM != null && strideLengthM > 0 && speedMs > 0.0) {
-                final freqPerSec = speedMs / strideLengthM; // steps per second
-                final computedRPM = (freqPerSec * 60.0).round();
-                if (computedRPM > 0 && computedRPM < 300) {
-                  finalCadence = computedRPM;
-                }
-              }
-            }
-
-            // Only update if plausible
-            if (finalCadence > 0 && finalCadence < 300) {
-              ride.setCadence(finalCadence);
-              print("RSC parsed -> speed=${speedMs.toStringAsFixed(2)} m/s stride=${strideLengthM ?? 'n/a'} m cadence=$finalCadence");
-            } else {
-              // If invalid, set 0 to indicate none
-              ride.setCadence(0);
-              print("RSC cadence not available (raw cadence: $cadenceFromRsc, computed: $finalCadence)");
-            }
-          } catch (e) {
-            print("RSC parse error: $e raw:$data");
+          if (finalCadenceStrides > 0 && finalCadenceStrides < 220) {
+            ride.setCadence(finalCadenceStrides);
+            print("Cadence parsed = $finalCadenceStrides strides/min");
+          } else {
+            ride.setCadence(0);
           }
         });
-
-        print("Subscribed to HR, Power, RSC notifications");
       }
-    }, onError: (e) {
-      print("Connection error: $e");
     });
   }
 }
 
 // -----------------------------
-// Ride Dashboard
+// Ride dashboard UI
 // -----------------------------
 class RideDashboard extends StatefulWidget {
   const RideDashboard({super.key});
@@ -318,79 +271,81 @@ class _RideDashboardState extends State<RideDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final ride = Provider.of<RideState>(context);
+    final ride = context.watch<RideState>();
+    final ble = context.read<BleManager>();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Ride Dashboard"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bluetooth_searching),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => BleScannerPage()),
-              );
-            },
+      appBar: AppBar(title: const Text('PhysiologicalOptimiser')),
+      body: Column(
+        children: [
+          Expanded(
+            child: StreamBuilder<List<DiscoveredDevice>>(
+              stream: ble.scan(),
+              builder: (context, snapshot) {
+                final devices = snapshot.data ?? [];
+                return ListView.builder(
+                  itemCount: devices.length,
+                  itemBuilder: (context, i) {
+                    final d = devices[i];
+                    return ListTile(
+                      title: Text(d.name.isEmpty ? d.id : d.name),
+                      subtitle: Text(d.id),
+                      trailing: ElevatedButton(
+                        onPressed: () => ble.connect(d.id, ride),
+                        child: const Text('Connect'),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              childAspectRatio: 2.5,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              children: [
+                _metricTile("Heart rate", "${ride.hr} BPM"),
+                _metricTile("Power", "${ride.power} W"),
+                _metricTile("Cadence", "${ride.cadence} spm"),
+                _metricTile("Efficiency", ride.efficiency.toStringAsFixed(2)),
+              ],
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            color: ride.alertColor,
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+            child: Text(
+              ride.shiftMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 18),
+            ),
           ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              ride.shiftMessage,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: ride.alertColor,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text("Cadence: ${ride.cadence} RPM"),
-            Text("Power: ${ride.power} W"),
-            Text("Heart Rate: ${ride.hr} BPM"),
-            Text("Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
-          ],
-        ),
-      ),
     );
   }
-}
 
-// -----------------------------
-// BLE Scanner Page
-// -----------------------------
-class BleScannerPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.read<BleManager>();
-    final ride = context.read<RideState>();
-
-    return Scaffold(
-      appBar: AppBar(title: const Text("Scan & Connect")),
-      body: StreamBuilder<List<DiscoveredDevice>>(
-        stream: ble.scan(),
-        builder: (context, snapshot) {
-          final devices = snapshot.data ?? [];
-          return ListView.builder(
-            itemCount: devices.length,
-            itemBuilder: (context, index) {
-              final d = devices[index];
-              final name = d.name.isNotEmpty ? d.name : "Unknown";
-              return ListTile(
-                title: Text(name),
-                subtitle: Text(d.id),
-                onTap: () {
-                  ble.connect(d.id, ride);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Connecting to $name")),
-                  );
-                },
-              );
-            },
-          );
-        },
+  Widget _metricTile(String label, String value) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.blueGrey.shade50,
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          const SizedBox(height: 6),
+          Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
