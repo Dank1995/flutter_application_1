@@ -1,11 +1,18 @@
-// lib/main.dart
-import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:hive/hive.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:fl_chart/fl_chart.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final dir = await getApplicationDocumentsDirectory();
+  await Hive.initFlutter(dir.path);
+  await Hive.openBox('sessions');
   runApp(
     MultiProvider(
       providers: [
@@ -17,6 +24,9 @@ void main() {
   );
 }
 
+// -----------------------------
+// App
+// -----------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
@@ -30,31 +40,28 @@ class MyApp extends StatelessWidget {
 }
 
 // -----------------------------
-// Ride state with dynamic optimiser
+// Ride State with historical efficiency
 // -----------------------------
 class RideState extends ChangeNotifier {
-  int cadence = 0; // strides/min
-  int power = 0;   // Watts
-  int hr = 0;      // BPM
-  double efficiency = 0; // W/BPM
-
-  final Map<int, List<double>> workoutEffBuckets = {};
-  final List<int> recentHr = [];
-  final int maxHrHistory = 12;
+  int cadence = 0; // RPM
+  int power = 0; // Watts
+  int hr = 0; // BPM
+  double efficiency = 0;
 
   int optimalCadence = 90;
-  double _optimalCadenceSmoothed = 90.0;
-  final double smoothingAlpha = 0.4;
+
+  final int windowSize = 5;
+  final List<Map<String, dynamic>> recentEff = [];
+
+  final Box sessions = Hive.box('sessions');
 
   void setHr(int value) {
     hr = value;
-    recentHr.add(value);
-    if (recentHr.length > maxHrHistory) recentHr.removeAt(0);
     _updateEfficiency();
   }
 
-  void setCadence(int valueStridesPerMin) {
-    cadence = valueStridesPerMin;
+  void setCadence(int value) {
+    cadence = value;
     _updateEfficiency();
   }
 
@@ -66,93 +73,72 @@ class RideState extends ChangeNotifier {
   void _updateEfficiency() {
     if (hr > 0) {
       efficiency = power / hr;
-      final list = workoutEffBuckets.putIfAbsent(cadence, () => []);
-      list.add(efficiency);
-      if (list.length > 300) {
-        list.removeRange(0, list.length - 300);
-      }
-      final histOptimal = _predictDynamicOptimalCadence();
-      _optimalCadenceSmoothed =
-          smoothingAlpha * histOptimal + (1 - smoothingAlpha) * _optimalCadenceSmoothed;
-      optimalCadence = _optimalCadenceSmoothed.round();
+
+      recentEff.add({"cadence": cadence, "efficiency": efficiency});
+      if (recentEff.length > windowSize) recentEff.removeAt(0);
+
+      _storeSession();
+      optimalCadence = _predictOptimalCadence();
     }
     notifyListeners();
   }
 
-  double _weightedEffForCadence(int cad) {
-    final values = workoutEffBuckets[cad];
-    if (values == null || values.isEmpty) return 0.0;
-    double weight = 1.0;
-    const double decay = 0.9;
-    double sum = 0.0, totalWeight = 0.0;
-    for (var i = values.length - 1; i >= 0; i--) {
-      final v = values[i];
-      sum += v * weight;
-      totalWeight += weight;
-      weight *= decay;
-      if (weight < 1e-6) break;
-    }
-    return sum / totalWeight;
+  void _storeSession() {
+    final list = sessions.get('all_sessions', defaultValue: <Map<String, dynamic>>[])!.cast<Map<String, dynamic>>();
+    list.add({"cadence": cadence, "power": power, "hr": hr, "efficiency": efficiency, "time": DateTime.now().toIso8601String()});
+    sessions.put('all_sessions', list);
   }
 
-  int _predictDynamicOptimalCadence() {
-    if (workoutEffBuckets.isEmpty) return optimalCadence;
-    int bestCad = optimalCadence;
-    double bestEff = -double.infinity;
-    for (final cad in workoutEffBuckets.keys) {
-      final eff = _weightedEffForCadence(cad);
-      if (eff > bestEff) {
-        bestEff = eff;
-        bestCad = cad;
-      }
+  int _predictOptimalCadence() {
+    final allSessions = sessions.get('all_sessions', defaultValue: <Map<String, dynamic>>[])!.cast<Map<String, dynamic>>();
+    if (allSessions.isEmpty) return 90;
+
+    // Bucket cadence to efficiencies
+    final Map<int, List<double>> cadEff = {};
+    for (var s in allSessions) {
+      final c = s['cadence'] as int;
+      final e = s['efficiency'] as double;
+      cadEff.putIfAbsent(c, () => []).add(e);
     }
+
+    int bestCad = cadEff.entries
+        .map((e) => MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
+        .reduce((a, b) => a.value > b.value ? a : b)
+        .key;
     return bestCad;
-  }
-
-  int get _cadenceTolerance {
-    if (recentHr.length < 3) return 3;
-    final mean = recentHr.reduce((a, b) => a + b) / recentHr.length;
-    final variance = recentHr
-        .map((x) => (x - mean) * (x - mean))
-        .reduce((a, b) => a + b) / recentHr.length;
-    final std = math.sqrt(variance);
-    return std < 2 ? 2 : 3;
   }
 
   String get shiftMessage {
     final diff = cadence - optimalCadence;
-    if (diff.abs() > _cadenceTolerance) {
+    if (diff.abs() > 5) {
       return diff > 0
-          ? "Decrease cadence toward $optimalCadence strides/min"
-          : "Increase cadence toward $optimalCadence strides/min";
+          ? "Shift to higher gear ($optimalCadence RPM)"
+          : "Shift to lower gear ($optimalCadence RPM)";
     }
-    return "Cadence optimal ($optimalCadence strides/min)";
+    return "Cadence optimal ($optimalCadence RPM)";
   }
 
   Color get alertColor =>
-      (cadence - optimalCadence).abs() > _cadenceTolerance ? Colors.red : Colors.green;
+      (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
+
+  List<FlSpot> getEfficiencySpots() {
+    final allSessions = sessions.get('all_sessions', defaultValue: <Map<String, dynamic>>[])!.cast<Map<String, dynamic>>();
+    return List.generate(allSessions.length, (i) => FlSpot(i.toDouble(), allSessions[i]['efficiency'] as double));
+  }
 }
 
 // -----------------------------
-// BLE manager with corrected cadence parsing (no halving)
+// BLE Manager
 // -----------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  final Uuid heartRateService =
-      Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
-  final Uuid heartRateMeasurement =
-      Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
-
-  final Uuid rscService =
-      Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
-  final Uuid rscMeasurement =
-      Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
-
-  final Uuid cyclingPowerService =
-      Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
-  final Uuid powerMeasurement =
-      Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
+  final Uuid heartRateService = Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
+  final Uuid heartRateMeasurement = Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
+  final Uuid rscService = Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
+  final Uuid rscMeasurement = Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
+  final Uuid cyclingPowerService = Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
+  final Uuid powerMeasurement = Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
 
   Stream<List<DiscoveredDevice>> scan() {
     final devices = <DiscoveredDevice>[];
@@ -162,79 +148,34 @@ class BleManager {
     });
   }
 
-  int _u16(List<int> b, int offset) =>
-      (b[offset] & 0xFF) | ((b[offset + 1] & 0xFF) << 8);
+  int _u16(List<int> b, int offset) => (b[offset] & 0xFF) | ((b[offset + 1] & 0xFF) << 8);
   int _i16(List<int> b, int offset) {
     final v = _u16(b, offset);
     return v >= 0x8000 ? v - 0x10000 : v;
   }
 
   Future<void> connect(String deviceId, RideState ride) async {
-    _ble.connectToDevice(id: deviceId).listen((update) async {
+    _ble.connectToDevice(id: deviceId).listen((update) {
       if (update.connectionState == DeviceConnectionState.connected) {
-        print("Connected to $deviceId");
-
-        final hrChar = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: heartRateService,
-          characteristicId: heartRateMeasurement,
-        );
+        // HR
+        final hrChar = QualifiedCharacteristic(deviceId: deviceId, serviceId: heartRateService, characteristicId: heartRateMeasurement);
         _ble.subscribeToCharacteristic(hrChar).listen((data) {
-          if (data.length > 1) {
-            ride.setHr(data[1]);
-          }
+          if (data.length > 1) ride.setHr(data[1]);
         });
 
-        final powerChar = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: cyclingPowerService,
-          characteristicId: powerMeasurement,
-        );
+        // Power
+        final powerChar = QualifiedCharacteristic(deviceId: deviceId, serviceId: cyclingPowerService, characteristicId: powerMeasurement);
         _ble.subscribeToCharacteristic(powerChar).listen((data) {
-          if (data.length >= 4) {
-            final int16Power = _i16(List<int>.from(data), 2);
-            ride.setPower(int16Power);
-          }
+          if (data.length >= 4) ride.setPower(_i16(data, 2));
         });
 
-        final rscChar = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: rscService,
-          characteristicId: rscMeasurement,
-        );
+        // Cadence
+        final rscChar = QualifiedCharacteristic(deviceId: deviceId, serviceId: rscService, characteristicId: rscMeasurement);
         _ble.subscribeToCharacteristic(rscChar).listen((data) {
           if (data.isEmpty) return;
           final bytes = List<int>.from(data);
-
-          // RSC flags at bytes[0]; speed (if present) at [1..2]; cadence at [3]
-          // We read cadence defensively in case flags vary.
-          final int flags = bytes[0] & 0xFF;
-          int offset = 1;
-
-          // If speed present (bit 0), skip speed (u16, 1/256 m/s)
-          if ((flags & 0x01) != 0 && bytes.length >= offset + 2) {
-            offset += 2;
-          }
-
-          // Cadence present (bit 1); single byte, strides or steps per minute depending on device.
-          int? rawCadence;
-          if ((flags & 0x02) != 0 && bytes.length > offset) {
-            rawCadence = bytes[offset] & 0xFF;
-            offset += 1;
-          }
-
-          int finalCadenceStrides = 0;
-          if (rawCadence != null && rawCadence > 0) {
-            // Use raw cadence directly as strides/min (no halving).
-            finalCadenceStrides = rawCadence;
-          }
-
-          if (finalCadenceStrides > 0 && finalCadenceStrides < 220) {
-            ride.setCadence(finalCadenceStrides);
-            print("Cadence parsed = $finalCadenceStrides strides/min");
-          } else {
-            ride.setCadence(0);
-          }
+          int cadenceFromRsc = bytes.length > 1 ? bytes[1] : 0;
+          if (cadenceFromRsc > 0) ride.setCadence(cadenceFromRsc);
         });
       }
     });
@@ -242,7 +183,7 @@ class BleManager {
 }
 
 // -----------------------------
-// Ride dashboard UI
+// Ride Dashboard
 // -----------------------------
 class RideDashboard extends StatefulWidget {
   const RideDashboard({super.key});
@@ -258,94 +199,100 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 
   Future<void> _ensurePermissions() async {
-    if (await Permission.locationWhenInUse.isDenied) {
-      await Permission.locationWhenInUse.request();
-    }
-    if (await Permission.bluetoothScan.isDenied) {
-      await Permission.bluetoothScan.request();
-    }
-    if (await Permission.bluetoothConnect.isDenied) {
-      await Permission.bluetoothConnect.request();
-    }
+    await Permission.locationWhenInUse.request();
+    await Permission.bluetoothScan.request();
+    await Permission.bluetoothConnect.request();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ride = context.watch<RideState>();
-    final ble = context.read<BleManager>();
-
+    final ride = Provider.of<RideState>(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('PhysiologicalOptimiser')),
+      appBar: AppBar(
+        title: const Text("Ride Dashboard"),
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.bluetooth_searching),
+              onPressed: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => BleScannerPage()));
+              }),
+        ],
+      ),
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<List<DiscoveredDevice>>(
-              stream: ble.scan(),
-              builder: (context, snapshot) {
-                final devices = snapshot.data ?? [];
-                return ListView.builder(
-                  itemCount: devices.length,
-                  itemBuilder: (context, i) {
-                    final d = devices[i];
-                    return ListTile(
-                      title: Text(d.name.isEmpty ? d.id : d.name),
-                      subtitle: Text(d.id),
-                      trailing: ElevatedButton(
-                        onPressed: () => ble.connect(d.id, ride),
-                        child: const Text('Connect'),
-                      ),
-                    );
-                  },
-                );
-              },
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(ride.shiftMessage, style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: ride.alertColor)),
+                  const SizedBox(height: 12),
+                  Text("Cadence: ${ride.cadence} RPM"),
+                  Text("Power: ${ride.power} W"),
+                  Text("Heart Rate: ${ride.hr} BPM"),
+                  Text("Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
+                ],
+              ),
             ),
           ),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              childAspectRatio: 2.5,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              children: [
-                _metricTile("Heart rate", "${ride.hr} BPM"),
-                _metricTile("Power", "${ride.power} W"),
-                _metricTile("Cadence", "${ride.cadence} spm"),
-                _metricTile("Efficiency", ride.efficiency.toStringAsFixed(2)),
-              ],
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            color: ride.alertColor,
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-            child: Text(
-              ride.shiftMessage,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 18),
+          SizedBox(
+            height: 200,
+            child: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: LineChart(
+                LineChartData(
+                  minY: 0,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: ride.getEfficiencySpots(),
+                      isCurved: true,
+                      color: Colors.green,
+                      barWidth: 3,
+                      dotData: FlDotData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(show: true, bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true))),
+                  gridData: FlGridData(show: true),
+                ),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _metricTile(String label, String value) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: Colors.blueGrey.shade50,
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-          const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ],
+// -----------------------------
+// BLE Scanner Page
+// -----------------------------
+class BleScannerPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.read<BleManager>();
+    final ride = context.read<RideState>();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text("Scan & Connect")),
+      body: StreamBuilder<List<DiscoveredDevice>>(
+        stream: ble.scan(),
+        builder: (context, snapshot) {
+          final devices = snapshot.data ?? [];
+          return ListView.builder(
+            itemCount: devices.length,
+            itemBuilder: (context, index) {
+              final d = devices[index];
+              return ListTile(
+                title: Text(d.name.isNotEmpty ? d.name : "Unknown"),
+                subtitle: Text(d.id),
+                onTap: () {
+                  ble.connect(d.id, ride);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Connecting to ${d.name}")));
+                },
+              );
+            },
+          );
+        },
       ),
     );
   }
