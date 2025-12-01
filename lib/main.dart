@@ -1,5 +1,5 @@
 // lib/main.dart
-import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -34,26 +34,41 @@ class MyApp extends StatelessWidget {
 }
 
 // -----------------------------
-// Ride State with Optimiser
+// Ride State with dynamic optimiser (running-only)
 // -----------------------------
 class RideState extends ChangeNotifier {
-  int cadence = 0; // RPM
-  int power = 0; // Watts
-  int hr = 0; // BPM
-  double efficiency = 0;
+  // Running cadence is displayed in strides/min (SPM / 2)
+  int cadence = 0; // strides per minute
+  int power = 0;   // Watts
+  int hr = 0;      // BPM
+  double efficiency = 0; // W/BPM
 
-  final int windowSize = 5;
-  final List<Map<String, dynamic>> recentEff = [];
+  // Workout-long buckets: cadence (strides/min) -> efficiencies
+  final Map<int, List<double>> workoutEffBuckets = {};
 
+  // Keep a short HR history for stability-aware thresholds
+  final List<int> recentHr = [];
+  final int maxHrHistory = 10;
+
+  // Dynamic optimal cadence (strides/min)
   int optimalCadence = 90;
+
+  // Smoothing for optimal cadence (to avoid jitter)
+  double _optimalCadenceSmoothed = 90.0;
+  final double smoothingAlpha = 0.4; // higher = react faster
+
+  // Limit per-cadence samples retained (memory control)
+  final int maxSamplesPerCadence = 300;
 
   void setHr(int value) {
     hr = value;
+    recentHr.add(value);
+    if (recentHr.length > maxHrHistory) recentHr.removeAt(0);
     _updateEfficiency();
   }
 
-  void setCadence(int value) {
-    cadence = value;
+  void setCadence(int valueStridesPerMin) {
+    cadence = valueStridesPerMin;
     _updateEfficiency();
   }
 
@@ -66,49 +81,87 @@ class RideState extends ChangeNotifier {
     if (hr > 0) {
       efficiency = power / hr;
 
-      recentEff.add({
-        "cadence": cadence,
-        "efficiency": efficiency,
-      });
-      if (recentEff.length > windowSize) recentEff.removeAt(0);
+      // Update workout buckets
+      final list = workoutEffBuckets.putIfAbsent(cadence, () => []);
+      list.add(efficiency);
+      if (list.length > maxSamplesPerCadence) {
+        list.removeRange(0, list.length - maxSamplesPerCadence);
+      }
 
-      optimalCadence = _predictOptimalCadence();
+      // Recompute dynamic optimal cadence using recency-weighted efficiency
+      final histOptimal = _predictDynamicOptimalCadence();
+
+      // Smooth the target to avoid oscillations
+      _optimalCadenceSmoothed =
+          smoothingAlpha * histOptimal + (1 - smoothingAlpha) * _optimalCadenceSmoothed;
+      optimalCadence = _optimalCadenceSmoothed.round();
     }
     notifyListeners();
   }
 
-  int _predictOptimalCadence() {
-    if (recentEff.isEmpty) return 90;
-    final Map<int, List<double>> cadEff = {};
-    for (var entry in recentEff) {
-      int cad = entry["cadence"];
-      double eff = entry["efficiency"];
-      cadEff.putIfAbsent(cad, () => []).add(eff);
+  // Weighted average where recent samples count more (exponential decay)
+  double _weightedEffForCadence(int cad) {
+    final values = workoutEffBuckets[cad];
+    if (values == null || values.isEmpty) return 0.0;
+
+    double weight = 1.0;
+    const double decay = 0.9; // recent samples get more weight
+    double sum = 0.0, totalWeight = 0.0;
+
+    // Iterate from newest to oldest
+    for (var i = values.length - 1; i >= 0; i--) {
+      final v = values[i];
+      sum += v * weight;
+      totalWeight += weight;
+      weight *= decay;
+      if (weight < 1e-6) break; // early stop
     }
-    int optimalCad = cadEff.entries
-        .map((e) =>
-            MapEntry(e.key, e.value.reduce((a, b) => a + b) / e.value.length))
-        .reduce((a, b) => a.value > b.value ? a : b)
-        .key;
-    return optimalCad;
+    return sum / totalWeight;
+  }
+
+  int _predictDynamicOptimalCadence() {
+    if (workoutEffBuckets.isEmpty) return optimalCadence;
+
+    int bestCad = optimalCadence;
+    double bestEff = -double.infinity;
+
+    for (final cad in workoutEffBuckets.keys) {
+      final eff = _weightedEffForCadence(cad);
+      if (eff > bestEff) {
+        bestEff = eff;
+        bestCad = cad;
+      }
+    }
+    return bestCad;
+  }
+
+  // Adaptive threshold: tighter when HR is stable, wider when volatile
+  int get _cadenceTolerance {
+    if (recentHr.length < 3) return 5;
+    final mean = recentHr.reduce((a, b) => a + b) / recentHr.length;
+    final variance = recentHr
+        .map((x) => (x - mean) * (x - mean))
+        .reduce((a, b) => a + b) / recentHr.length;
+    final std = math.sqrt(variance);
+    return std < 2 ? 3 : 5; // tighten if HR is steady
   }
 
   String get shiftMessage {
     final diff = cadence - optimalCadence;
-    if (diff.abs() > 5) {
+    if (diff.abs() > _cadenceTolerance) {
       return diff > 0
-          ? "Shift to higher gear ($optimalCadence RPM)"
-          : "Shift to lower gear ($optimalCadence RPM)";
+          ? "Decrease cadence toward $optimalCadence strides/min"
+          : "Increase cadence toward $optimalCadence strides/min";
     }
-    return "Cadence optimal ($optimalCadence RPM)";
+    return "Cadence optimal ($optimalCadence strides/min)";
   }
 
   Color get alertColor =>
-      (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
+      (cadence - optimalCadence).abs() > _cadenceTolerance ? Colors.red : Colors.green;
 }
 
 // -----------------------------
-// BLE Manager with robust parsing
+// BLE Manager with running-only cadence parsing
 // -----------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
@@ -187,8 +240,7 @@ class BleManager {
             if (data.length >= 4) {
               // Flags are 2 bytes (data[0..1]) - we don't need most flags here
               // Instantaneous Power is signed int16 at data[2..3]
-              final int16Power = _i16(data, 2);
-              // Some devices use other offsets; but per BLE spec this is correct.
+              final int16Power = _i16(List<int>.from(data), 2);
               ride.setPower(int16Power);
               print("Power raw: $data -> power=$int16Power W");
             } else {
@@ -199,7 +251,7 @@ class BleManager {
           }
         });
 
-        // --- RSC Measurement (robust parsing and fallback) ---
+        // --- RSC Measurement (running-only cadence) ---
         final rscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: rscService,
@@ -209,7 +261,6 @@ class BleManager {
         _ble.subscribeToCharacteristic(rscChar).listen((data) {
           try {
             if (data.isEmpty) return;
-            // convert to List<int>
             final bytes = List<int>.from(data);
             print("RSC raw: $bytes");
 
@@ -217,7 +268,7 @@ class BleManager {
             final flags = bytes[0] & 0xFF;
             final strideLenPresent = (flags & 0x01) != 0;
             final totalDistPresent = (flags & 0x02) != 0;
-            final isRunning = (flags & 0x04) != 0;
+            // final isRunning = (flags & 0x04) != 0; // running-only app
 
             int offset = 1;
 
@@ -229,51 +280,47 @@ class BleManager {
             }
             offset += 2;
 
-            // Instantaneous cadence (uint8) - steps per minute (RPM)
-            int? cadenceFromRsc;
+            // Instantaneous cadence (uint8) - steps per minute
+            int? stepsPerMin;
             if (bytes.length > offset) {
-              cadenceFromRsc = bytes[offset] & 0xFF;
+              stepsPerMin = bytes[offset] & 0xFF;
             }
             offset += 1;
 
-            // Optional stride length (uint16) in metres with resolution 1/100? (device-dependent)
+            // Optional stride length (uint16) in metres with resolution 1/100
             double? strideLengthM;
             if (strideLenPresent && bytes.length >= offset + 2) {
               final rawStride = _u16(bytes, offset);
-              // Per RSC spec stride length is in metres with resolution 1/100 (i.e. value/100)
               strideLengthM = rawStride / 100.0;
               offset += 2;
             }
 
-            // Optional total distance (uint32) - skip if present
+            // Optional total distance (uint32)
             if (totalDistPresent && bytes.length >= offset + 4) {
-              final totalDistRaw = _u32(bytes, offset);
-              // totalDistRaw is in metres with resolution 1/100 (device-dependent)
+              // final totalDistRaw = _u32(bytes, offset);
               offset += 4;
             }
 
-            int finalCadence = 0;
-            if (cadenceFromRsc != null && cadenceFromRsc > 0) {
-              finalCadence = cadenceFromRsc;
-            } else {
-              // Fallback: if speed and stride length available, compute cadence = (speed / strideLength) * 60
-              if (strideLengthM != null && strideLengthM > 0 && speedMs > 0.0) {
-                final freqPerSec = speedMs / strideLengthM; // steps per second
-                final computedRPM = (freqPerSec * 60.0).round();
-                if (computedRPM > 0 && computedRPM < 300) {
-                  finalCadence = computedRPM;
-                }
+            // Running cadence as strides/min (SPM / 2)
+            int finalCadenceStrides = 0;
+            if (stepsPerMin != null && stepsPerMin > 0) {
+              finalCadenceStrides = (stepsPerMin / 2).round();
+            } else if (strideLengthM != null && strideLengthM > 0 && speedMs > 0.0) {
+              // Fallback: cadence (steps/min) = (speed / strideLength) * 60
+              final stepsPerMinComputed = ((speedMs / strideLengthM) * 60.0).round();
+              if (stepsPerMinComputed > 0 && stepsPerMinComputed < 400) {
+                finalCadenceStrides = (stepsPerMinComputed / 2).round();
               }
             }
 
-            // Only update if plausible
-            if (finalCadence > 0 && finalCadence < 300) {
-              ride.setCadence(finalCadence);
-              print("RSC parsed -> speed=${speedMs.toStringAsFixed(2)} m/s stride=${strideLengthM ?? 'n/a'} m cadence=$finalCadence");
+            if (finalCadenceStrides > 0 && finalCadenceStrides < 220) {
+              ride.setCadence(finalCadenceStrides);
+              print(
+                "RSC parsed (running) -> speed=${speedMs.toStringAsFixed(2)} m/s, strideLen=${strideLengthM ?? 'n/a'} m, steps/min=${stepsPerMin ?? 'n/a'}, strides/min=$finalCadenceStrides",
+              );
             } else {
-              // If invalid, set 0 to indicate none
               ride.setCadence(0);
-              print("RSC cadence not available (raw cadence: $cadenceFromRsc, computed: $finalCadence)");
+              print("RSC cadence invalid (steps/min=$stepsPerMin)");
             }
           } catch (e) {
             print("RSC parse error: $e raw:$data");
@@ -321,7 +368,7 @@ class _RideDashboardState extends State<RideDashboard> {
     final ride = Provider.of<RideState>(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Ride Dashboard"),
+        title: const Text("Run Dashboard"),
         actions: [
           IconButton(
             icon: const Icon(Icons.bluetooth_searching),
@@ -345,9 +392,10 @@ class _RideDashboardState extends State<RideDashboard> {
                 fontWeight: FontWeight.bold,
                 color: ride.alertColor,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            Text("Cadence: ${ride.cadence} RPM"),
+            Text("Cadence: ${ride.cadence} strides/min"),
             Text("Power: ${ride.power} W"),
             Text("Heart Rate: ${ride.hr} BPM"),
             Text("Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
