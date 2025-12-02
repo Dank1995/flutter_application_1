@@ -3,59 +3,54 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
-    
+
     <key>CFBundleDisplayName</key>
     <string>PhysiologicalOptimiser</string>
-    
+
     <key>CFBundleIdentifier</key>
-    <string>PhysiologicalOptimiser</string>
-    
+    <string>com.physiologicaloptimiser.app</string>
+
     <key>CFBundleExecutable</key>
     <string>Runner</string>
-    
+
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
-    
-    <!-- Bumped build number -->
+
+    <!-- Bump this each upload -->
     <key>CFBundleVersion</key>
-    <string>34</string>
-    
-    <!-- REQUIRED for App Store validation -->
+    <string>37</string>
+
     <key>CFBundlePackageType</key>
     <string>APPL</string>
-    
+
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
-    
-    <key>UIMainStoryboardFile</key>
-    <string>Main</string>
-    
-    <!-- FIXED: must include all four orientations -->
+
+    <!-- Allow portrait + landscape -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
-    
+
+    <!-- Location / GPS (for speed/pace) -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app uses your location to calculate speed and pace for optimisation.</string>
+
+    <!-- Bluetooth HR strap -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app uses Bluetooth to read your heart rate from a chest strap.</string>
+
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app requires Bluetooth access to connect to your heart rate monitor.</string>
+
     <!-- Encryption compliance -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
-    
-    <!-- Bluetooth entitlements -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app uses Bluetooth to connect to workout sensors.</string>
-    
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>This app requires Bluetooth access to optimise cadence.</string>
-    
-    <!-- Allow background BLE scanning -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>
-    </array>
+
 </dict>
 </plist>
