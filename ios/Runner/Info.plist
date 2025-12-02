@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 
+    <!-- App identity -->
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
 
@@ -16,12 +17,12 @@
     <key>CFBundleExecutable</key>
     <string>Runner</string>
 
+    <!-- App version -->
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
 
-    <!-- Bump this each upload -->
     <key>CFBundleVersion</key>
-    <string>37</string>
+    <string>36</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -29,7 +30,7 @@
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Allow portrait + landscape -->
+    <!-- Orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -37,16 +38,23 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Location / GPS (for speed/pace) -->
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app uses your location to calculate speed and pace for optimisation.</string>
-
-    <!-- Bluetooth HR strap -->
+    <!-- Bluetooth permissions (HR strap only) -->
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app uses Bluetooth to read your heart rate from a chest strap.</string>
+    <string>This app uses Bluetooth to read heart rate from a chest strap.</string>
 
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>This app requires Bluetooth access to connect to your heart rate monitor.</string>
+    <string>This app uses Bluetooth to read heart rate from a chest strap.</string>
+
+    <!-- Location permissions for GPS velocity -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app uses GPS speed to optimise your performance.</string>
+
+    <!-- Background capabilities -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>location</string>
+        <string>bluetooth-central</string>
+    </array>
 
     <!-- Encryption compliance -->
     <key>ITSAppUsesNonExemptEncryption</key>
