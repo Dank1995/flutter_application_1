@@ -26,9 +26,9 @@ void main() async {
   );
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // App Root
-// =============================================================
+// -----------------------------------------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
@@ -41,35 +41,34 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // Ride State: Optimiser + History + Sensor Memory
-// =============================================================
+// -----------------------------------------------------------
 class RideState extends ChangeNotifier {
   int cadence = 0;
   int power = 0;
   int hr = 0;
   double efficiency = 0;
 
-  // For running: remember last good cadence to avoid fake dips
-  int? lastValidRunningCadence;
-
-  // For cycling crank-based cadence (CP/CSC)
-  int? lastCrankRevs;
-  int? lastCrankEventTime; // 1/1024 s ticks
-
-  // Rolling window + monthly learning
   final int windowSize = 10;
   final List<Map<String, dynamic>> recentEff = [];
-  int optimalCadence = 90;
 
+  int optimalCadence = 90;
   String mode = "Cycling"; // "Cycling" or "Running"
 
   // Raw BLE packet log
   final List<String> byteLog = [];
 
+  // For running (Stryd): remember last good cadence
+  int? lastValidRunningCadence;
+
+  // For cycling crank-based cadence (CP / CSC)
+  int? lastCrankRevs;
+  int? lastCrankEventTime; // 1/1024s ticks
+
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
 
-  // ---------------- Raw byte logging ----------------
+  // ---------- Raw BLE logging ----------
   void logBytes(String device, List<int> bytes) {
     final hex =
         bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
@@ -78,7 +77,7 @@ class RideState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------- Setters ----------------
+  // ---------- Setters ----------
   void setHr(int v) {
     hr = v;
     _updateEfficiency();
@@ -88,7 +87,6 @@ class RideState extends ChangeNotifier {
     cadence = v;
 
     if (mode == "Running" && v > 50) {
-      // store only realistic running cadence as valid
       lastValidRunningCadence = v;
     }
 
@@ -100,12 +98,12 @@ class RideState extends ChangeNotifier {
     _updateEfficiency();
   }
 
-  void setMode(String m) {
-    mode = m;
+  void setMode(String newMode) {
+    mode = newMode;
     notifyListeners();
   }
 
-  // ---------------- Efficiency Engine ----------------
+  // ---------- Efficiency engine ----------
   void _updateEfficiency() {
     if (hr > 0) {
       efficiency = power / hr;
@@ -135,7 +133,7 @@ class RideState extends ChangeNotifier {
     if (short == null) return monthly!;
     if (monthly == null) return short;
 
-    // blend: 60% recent, 40% last 30 days
+    // blend 60% recent, 40% last 30 days
     return ((short * 0.6) + (monthly * 0.4)).round();
   }
 
@@ -192,7 +190,7 @@ class RideState extends ChangeNotifier {
       ..sort((a, b) => a.time.compareTo(b.time));
   }
 
-  // ---------------- UI helpers ----------------
+  // ---------- UI helpers ----------
   String get shiftMessage {
     final diff = cadence - optimalCadence;
     if (diff.abs() > 5) {
@@ -207,37 +205,34 @@ class RideState extends ChangeNotifier {
       (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
 }
 
-// =============================================================
-// BLE Manager: HR + CP + RSC + CSC (universal sensors)
-// =============================================================
+// -----------------------------------------------------------
+// BLE Manager: HR + CP + RSC + CSC via fixed subscriptions
+// -----------------------------------------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  // Heart Rate
+  // Standard UUIDs
   final Uuid heartRateService =
       Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
   final Uuid heartRateMeasurement =
       Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  // Running Speed & Cadence (Stryd etc.)
   final Uuid rscService =
       Uuid.parse("00001814-0000-1000-8000-00805F9B34FB");
   final Uuid rscMeasurement =
       Uuid.parse("00002A53-0000-1000-8000-00805F9B34FB");
 
-  // Cycling Power (Rally, Assioma, etc.)
   final Uuid cyclingPowerService =
       Uuid.parse("00001818-0000-1000-8000-00805F9B34FB");
   final Uuid powerMeasurement =
       Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
 
-  // Cycling Speed & Cadence (ANY cadence sensor)
   final Uuid cscService =
       Uuid.parse("00001816-0000-1000-8000-00805F9B34FB");
   final Uuid cscMeasurement =
       Uuid.parse("00002A5B-0000-1000-8000-00805F9B34FB");
 
-  // ---------------- Scanner ----------------
+  // ---------- Scanner ----------
   Stream<List<DiscoveredDevice>> scan() {
     final devices = <DiscoveredDevice>[];
     return _ble.scanForDevices(withServices: []).map((d) {
@@ -246,7 +241,6 @@ class BleManager {
     });
   }
 
-  // ---------------- Helpers ----------------
   int _u16(List<int> b, int o) =>
       (b[o] & 0xFF) | ((b[o + 1] & 0xFF) << 8);
 
@@ -255,147 +249,136 @@ class BleManager {
     return v >= 0x8000 ? v - 0x10000 : v;
   }
 
-  // ---------------- Connect + auto-detect services ----------------
+  // ---------- Connect & subscribe directly ----------
   Future<void> connect(String deviceId, RideState ride) async {
-    _ble.connectToDevice(id: deviceId).listen((update) async {
+    _ble.connectToDevice(id: deviceId).listen((update) {
       if (update.connectionState == DeviceConnectionState.connected) {
-        // Discover services once, then attach based on what the device actually has
-        final services = await _ble.discoverServices(deviceId);
+        debugPrint("Connected to $deviceId");
 
-        for (final s in services) {
-          // HEART RATE
-          if (s.serviceId == heartRateService) {
-            final ch = s.characteristics.firstWhere(
-              (c) => c.characteristicId == heartRateMeasurement,
-              orElse: () => s.characteristics.first,
-            );
-            final hrChar = QualifiedCharacteristic(
-              deviceId: deviceId,
-              serviceId: s.serviceId,
-              characteristicId: ch.characteristicId,
-            );
-            _ble.subscribeToCharacteristic(hrChar).listen((data) {
-              ride.logBytes("HR", data);
-              if (data.length > 1) {
-                ride.setHr(data[1]);
+        // HR
+        final hrChar = QualifiedCharacteristic(
+          deviceId: deviceId,
+          serviceId: heartRateService,
+          characteristicId: heartRateMeasurement,
+        );
+        _ble.subscribeToCharacteristic(hrChar).listen(
+          (data) {
+            ride.logBytes("HR", data);
+            if (data.length > 1) {
+              ride.setHr(data[1]);
+            }
+          },
+          onError: (e) => debugPrint("HR subscribe error: $e"),
+        );
+
+        // Cycling Power (Rally / other power meters)
+        final powerChar = QualifiedCharacteristic(
+          deviceId: deviceId,
+          serviceId: cyclingPowerService,
+          characteristicId: powerMeasurement,
+        );
+        _ble.subscribeToCharacteristic(powerChar).listen(
+          (data) {
+            ride.logBytes("CP", data);
+
+            if (data.length >= 4) {
+              final p = _i16(data, 2);
+              ride.setPower(p);
+            }
+
+            // Rally cadence from crank revolution data (flags bit 5)
+            if (ride.mode == "Cycling" && data.length >= 8) {
+              final flags = _u16(data, 0);
+              final crankPresent = (flags & 0x20) != 0;
+              if (crankPresent) {
+                final crankRevs = _u16(data, 4);
+                final eventTime = _u16(data, 6); // 1/1024s
+                _updateCrankCadenceFromRevs(ride, crankRevs, eventTime);
               }
-            });
-          }
+            }
+          },
+          onError: (e) => debugPrint("CP subscribe error: $e"),
+        );
 
-          // CYCLING POWER (power + possible crank cadence)
-          if (s.serviceId == cyclingPowerService) {
-            final ch = s.characteristics.firstWhere(
-              (c) => c.characteristicId == powerMeasurement,
-              orElse: () => s.characteristics.first,
-            );
-            final pChar = QualifiedCharacteristic(
-              deviceId: deviceId,
-              serviceId: s.serviceId,
-              characteristicId: ch.characteristicId,
-            );
-            _ble.subscribeToCharacteristic(pChar).listen((data) {
-              ride.logBytes("CP", data);
+        // RSC (Stryd etc.)
+        final rscChar = QualifiedCharacteristic(
+          deviceId: deviceId,
+          serviceId: rscService,
+          characteristicId: rscMeasurement,
+        );
+        _ble.subscribeToCharacteristic(rscChar).listen(
+          (data) {
+            ride.logBytes("RSC", data);
 
-              if (data.length >= 4) {
-                final p = _i16(data, 2);
-                ride.setPower(p);
-              }
+            if (ride.mode != "Running") return;
+            if (data.length < 4) return;
 
-              // Rally-style cadence from crank revs (flags bit 5)
-              if (ride.mode == "Cycling" && data.length >= 8) {
-                final flags = _u16(data, 0);
-                final crankPresent = (flags & 0x20) != 0;
-                if (crankPresent) {
-                  final revs = _u16(data, 4);
-                  final t = _u16(data, 6);
-                  _updateCrankCadenceFromRevs(ride, revs, t);
-                }
-              }
-            });
-          }
+            // RSC spec:
+            // byte0 = flags
+            // byte1..2 = speed (m/s * 256)
+            // byte3 = cadence (single-leg for Stryd)
+            final speedRaw = _u16(data, 1);
+            final speedMs = speedRaw / 256.0;
+            final singleLeg = data[3] & 0xFF;
+            int totalCad = singleLeg * 2; // Stryd: 80 -> 160
 
-          // RSC / STRYD
-          if (s.serviceId == rscService) {
-            final ch = s.characteristics.firstWhere(
-              (c) => c.characteristicId == rscMeasurement,
-              orElse: () => s.characteristics.first,
-            );
-            final rscChar = QualifiedCharacteristic(
-              deviceId: deviceId,
-              serviceId: s.serviceId,
-              characteristicId: ch.characteristicId,
-            );
-            _ble.subscribeToCharacteristic(rscChar).listen((data) {
-              ride.logBytes("RSC", data);
+            // If basically not moving → cadence 0
+            if (speedMs < 0.3) {
+              ride.setCadence(0);
+              return;
+            }
 
-              // Only use for running mode
-              if (ride.mode != "Running" || data.length < 4) return;
+            // Anti-fake dip if raw suddenly tiny but we were high
+            if (singleLeg < 40 &&
+                ride.lastValidRunningCadence != null &&
+                ride.lastValidRunningCadence! > 80) {
+              totalCad = ride.lastValidRunningCadence!;
+            }
 
-              // data[1..2] = speed (m/s * 256)
-              final speedRaw = _u16(data, 1);
-              final speedMs = speedRaw / 256.0;
+            if (totalCad > 0 && totalCad < 260) {
+              ride.setCadence(totalCad);
+            }
+          },
+          onError: (e) => debugPrint("RSC subscribe error: $e"),
+        );
 
-              // data[3] = single-leg cadence, Stryd uses per-leg
-              final singleLeg = data[3] & 0xFF;
-              int totalCad = singleLeg * 2;
+        // CSC (generic cadence / speed-cadence sensors)
+        final cscChar = QualifiedCharacteristic(
+          deviceId: deviceId,
+          serviceId: cscService,
+          characteristicId: cscMeasurement,
+        );
+        _ble.subscribeToCharacteristic(cscChar).listen(
+          (data) {
+            ride.logBytes("CSC", data);
 
-              // If basically not moving → cadence 0
-              if (speedMs < 0.3) {
-                ride.setCadence(0);
-                return;
-              }
+            if (data.isEmpty) return;
 
-              // Fake dips: low raw but previously high cadence
-              if (singleLeg < 40 &&
-                  ride.lastValidRunningCadence != null &&
-                  ride.lastValidRunningCadence! > 80) {
-                totalCad = ride.lastValidRunningCadence!;
-              }
+            final flags = data[0];
+            int index = 1;
 
-              if (totalCad > 0 && totalCad < 260) {
-                ride.setCadence(totalCad);
-              }
-            });
-          }
+            // Optional wheel data (6 bytes)
+            if ((flags & 0x01) != 0 && data.length >= index + 6) {
+              // final wheelRevs = (data[index] |
+              //   (data[index+1] << 8) |
+              //   (data[index+2] << 16) |
+              //   (data[index+3] << 24));
+              // final wheelEvent = (data[index+4] | (data[index+5] << 8));
+              index += 6;
+            }
 
-          // CSC: generic cadence/speed sensors
-          if (s.serviceId == cscService) {
-            final ch = s.characteristics.firstWhere(
-              (c) => c.characteristicId == cscMeasurement,
-              orElse: () => s.characteristics.first,
-            );
-            final cscChar = QualifiedCharacteristic(
-              deviceId: deviceId,
-              serviceId: s.serviceId,
-              characteristicId: ch.characteristicId,
-            );
-            _ble.subscribeToCharacteristic(cscChar).listen((data) {
-              ride.logBytes("CSC", data);
-
-              if (data.isEmpty) return;
-              final flags = data[0];
-              int index = 1;
-
-              // Optional wheel data (speed) – not used yet, but ready
-              if ((flags & 0x01) != 0 && data.length >= index + 6) {
-                // final wheelRevs = (data[index] |
-                //    (data[index+1] << 8) |
-                //    (data[index+2] << 16) |
-                //    (data[index+3] << 24));
-                // final wheelEvent = (data[index+4] | (data[index+5] << 8));
-                index += 6;
-              }
-
-              // Crank cadence
-              if ((flags & 0x02) != 0 && data.length >= index + 4) {
-                final crankRevs = _u16(data, index);
-                final crankEvent = _u16(data, index + 2);
-                _updateCrankCadenceFromRevs(ride, crankRevs, crankEvent);
-              }
-            });
-          }
-        }
+            // Crank data (cadence)
+            if ((flags & 0x02) != 0 && data.length >= index + 4) {
+              final crankRevs = _u16(data, index);
+              final crankEvent = _u16(data, index + 2);
+              _updateCrankCadenceFromRevs(ride, crankRevs, crankEvent);
+            }
+          },
+          onError: (e) => debugPrint("CSC subscribe error: $e"),
+        );
       }
+    }, onError: (e) {
+      debugPrint("Connection error: $e");
     });
   }
 
@@ -404,7 +387,7 @@ class BleManager {
     if (ride.lastCrankRevs != null && ride.lastCrankEventTime != null) {
       int dRevs = crankRevs - ride.lastCrankRevs!;
       int dTime = eventTime - ride.lastCrankEventTime!;
-      if (dTime < 0) dTime += 65536; // wrap 16-bit
+      if (dTime < 0) dTime += 65536; // wrap
 
       final dt = dTime / 1024.0; // seconds
       if (dRevs > 0 && dt > 0) {
@@ -421,9 +404,9 @@ class BleManager {
   }
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // Ride Dashboard UI
-// =============================================================
+// -----------------------------------------------------------
 class RideDashboard extends StatefulWidget {
   const RideDashboard({super.key});
   @override
@@ -538,9 +521,9 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // Efficiency Graph
-// =============================================================
+// -----------------------------------------------------------
 class EfficiencyGraph extends StatelessWidget {
   final RideState ride;
   const EfficiencyGraph({super.key, required this.ride});
@@ -590,9 +573,9 @@ class EfficiencyGraph extends StatelessWidget {
   }
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // BLE Scanner Page (auto-scan)
-// =============================================================
+// -----------------------------------------------------------
 class BleScannerPage extends StatefulWidget {
   const BleScannerPage({super.key});
 
@@ -644,9 +627,9 @@ class _BleScannerPageState extends State<BleScannerPage> {
   }
 }
 
-// =============================================================
-// Raw BLE Bytes Page
-// =============================================================
+// -----------------------------------------------------------
+// Raw BLE Byte Log Page
+// -----------------------------------------------------------
 class ByteLogPage extends StatelessWidget {
   const ByteLogPage({super.key});
 
@@ -670,9 +653,9 @@ class ByteLogPage extends StatelessWidget {
   }
 }
 
-// =============================================================
+// -----------------------------------------------------------
 // Monthly Efficiency Page
-// =============================================================
+// -----------------------------------------------------------
 class MonthlyEfficiencyPage extends StatelessWidget {
   const MonthlyEfficiencyPage({super.key});
 
