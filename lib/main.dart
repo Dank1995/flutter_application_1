@@ -62,7 +62,7 @@ class RideState extends ChangeNotifier {
   // For running (Stryd): remember last good cadence
   int? lastValidRunningCadence;
 
-  // For cycling crank-based cadence (CP / CSC)
+  // For cycling crank-based cadence (CSC)
   int? lastCrankRevs;
   int? lastCrankEventTime; // 1/1024s ticks
 
@@ -85,11 +85,9 @@ class RideState extends ChangeNotifier {
 
   void setCadence(int v) {
     cadence = v;
-
     if (mode == "Running" && v > 50) {
       lastValidRunningCadence = v;
     }
-
     _updateEfficiency();
   }
 
@@ -206,7 +204,7 @@ class RideState extends ChangeNotifier {
 }
 
 // -----------------------------------------------------------
-// BLE Manager: HR + CP + RSC + CSC via fixed subscriptions
+// BLE Manager: HR + CP (power) + RSC (Stryd) + CSC (cadence)
 // -----------------------------------------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
@@ -255,7 +253,7 @@ class BleManager {
       if (update.connectionState == DeviceConnectionState.connected) {
         debugPrint("Connected to $deviceId");
 
-        // HR
+        // ---------------- HR ----------------
         final hrChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: heartRateService,
@@ -271,7 +269,7 @@ class BleManager {
           onError: (e) => debugPrint("HR subscribe error: $e"),
         );
 
-        // Cycling Power (Rally / other power meters)
+        // ---------------- CP: power only ----------------
         final powerChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: cyclingPowerService,
@@ -283,24 +281,16 @@ class BleManager {
 
             if (data.length >= 4) {
               final p = _i16(data, 2);
-              ride.setPower(p);
-            }
-
-            // Rally cadence from crank revolution data (flags bit 5)
-            if (ride.mode == "Cycling" && data.length >= 8) {
-              final flags = _u16(data, 0);
-              final crankPresent = (flags & 0x20) != 0;
-              if (crankPresent) {
-                final crankRevs = _u16(data, 4);
-                final eventTime = _u16(data, 6); // 1/1024s
-                _updateCrankCadenceFromRevs(ride, crankRevs, eventTime);
+              if (p >= 0 && p < 3000) {
+                ride.setPower(p);
               }
             }
+            // No cadence from CP: most meters don't carry it reliably.
           },
           onError: (e) => debugPrint("CP subscribe error: $e"),
         );
 
-        // RSC (Stryd etc.)
+        // ---------------- RSC: Stryd running cadence ----------------
         final rscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: rscService,
@@ -316,20 +306,21 @@ class BleManager {
             // RSC spec:
             // byte0 = flags
             // byte1..2 = speed (m/s * 256)
-            // byte3 = cadence (single-leg for Stryd)
+            // byte3 = cadence (steps per minute, single-leg for Stryd)
             final speedRaw = _u16(data, 1);
             final speedMs = speedRaw / 256.0;
-            final singleLeg = data[3] & 0xFF;
-            int totalCad = singleLeg * 2; // Stryd: 80 -> 160
+            final rawCad = data[3] & 0xFF;
 
-            // If basically not moving → cadence 0
-            if (speedMs < 0.3) {
+            // If basically not moving, cadence = 0
+            if (speedMs < 0.3 || rawCad == 0) {
               ride.setCadence(0);
               return;
             }
 
-            // Anti-fake dip if raw suddenly tiny but we were high
-            if (singleLeg < 40 &&
+            int totalCad = rawCad * 2; // Stryd 80 → 160
+
+            // If raw suddenly tiny but we had good cadence, keep last
+            if (totalCad < 60 &&
                 ride.lastValidRunningCadence != null &&
                 ride.lastValidRunningCadence! > 80) {
               totalCad = ride.lastValidRunningCadence!;
@@ -342,7 +333,7 @@ class BleManager {
           onError: (e) => debugPrint("RSC subscribe error: $e"),
         );
 
-        // CSC (generic cadence / speed-cadence sensors)
+        // ---------------- CSC: bike cadence from any sensor ----------------
         final cscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: cscService,
@@ -352,6 +343,7 @@ class BleManager {
           (data) {
             ride.logBytes("CSC", data);
 
+            if (ride.mode != "Cycling") return;
             if (data.isEmpty) return;
 
             final flags = data[0];
@@ -359,11 +351,7 @@ class BleManager {
 
             // Optional wheel data (6 bytes)
             if ((flags & 0x01) != 0 && data.length >= index + 6) {
-              // final wheelRevs = (data[index] |
-              //   (data[index+1] << 8) |
-              //   (data[index+2] << 16) |
-              //   (data[index+3] << 24));
-              // final wheelEvent = (data[index+4] | (data[index+5] << 8));
+              // wheel data not used for cadence here
               index += 6;
             }
 
