@@ -26,9 +26,9 @@ void main() async {
   );
 }
 
-// -----------------------------------------------------------
-// App Root
-// -----------------------------------------------------------
+// -----------------------------
+// App
+// -----------------------------
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
@@ -41,58 +41,47 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// -----------------------------------------------------------
-// Ride State: Optimiser + History + Sensor Memory
-// -----------------------------------------------------------
+// -----------------------------
+// Ride State with Optimiser + History
+// -----------------------------
 class RideState extends ChangeNotifier {
-  int cadence = 0;
-  int power = 0;
-  int hr = 0;
-  double efficiency = 0;
+  int cadence = 0; // RPM
+  int power = 0; // W
+  int hr = 0; // BPM
+  double efficiency = 0; // W/BPM
+
+  int? lastCrankRevs;
+  int? lastCrankEventTime;
 
   final int windowSize = 10;
   final List<Map<String, dynamic>> recentEff = [];
 
   int optimalCadence = 90;
-  String mode = "Cycling"; // "Cycling" or "Running"
+  String mode = "Cycling";
 
-  // Raw BLE packet log
   final List<String> byteLog = [];
-
-  // For running (Stryd): remember last good cadence
-  int? lastValidRunningCadence;
-
-  // For cycling crank-based cadence (CSC)
-  int? lastCrankRevs;
-  int? lastCrankEventTime; // 1/1024s ticks
 
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
 
-  // ---------- Raw BLE logging ----------
   void logBytes(String device, List<int> bytes) {
-    final hex =
-        bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
     byteLog.add("${DateTime.now().toIso8601String()} | $device: $hex");
     if (byteLog.length > 1000) byteLog.removeAt(0);
     notifyListeners();
   }
 
-  // ---------- Setters ----------
-  void setHr(int v) {
-    hr = v;
+  void setHr(int value) {
+    hr = value;
     _updateEfficiency();
   }
 
-  void setCadence(int v) {
-    cadence = v;
-    if (mode == "Running" && v > 50) {
-      lastValidRunningCadence = v;
-    }
+  void setCadence(int value) {
+    cadence = value;
     _updateEfficiency();
   }
 
-  void setPower(int v) {
-    power = v;
+  void setPower(int value) {
+    power = value;
     _updateEfficiency();
   }
 
@@ -101,18 +90,12 @@ class RideState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------- Efficiency engine ----------
   void _updateEfficiency() {
     if (hr > 0) {
       efficiency = power / hr;
 
-      recentEff.add({
-        "cadence": cadence,
-        "efficiency": efficiency,
-      });
-      if (recentEff.length > windowSize) {
-        recentEff.removeAt(0);
-      }
+      recentEff.add({"cadence": cadence, "efficiency": efficiency});
+      if (recentEff.length > windowSize) recentEff.removeAt(0);
 
       if (cadence > 0 && efficiency > 0) {
         _effBox.add(EffSample(DateTime.now(), efficiency, cadence));
@@ -124,22 +107,21 @@ class RideState extends ChangeNotifier {
   }
 
   int _computeOptimalCadence() {
-    final short = _shortTermBestCadence();
+    final shortTerm = _shortTermBestCadence();
     final monthly = _monthlyBestCadence();
 
-    if (short == null && monthly == null) return 90;
-    if (short == null) return monthly!;
-    if (monthly == null) return short;
+    if (monthly == null && shortTerm == null) return 90;
+    if (monthly == null) return shortTerm!;
+    if (shortTerm == null) return monthly;
 
-    // blend 60% recent, 40% last 30 days
-    return ((short * 0.6) + (monthly * 0.4)).round();
+    return ((shortTerm * 0.6) + (monthly * 0.4)).round();
   }
 
   int? _shortTermBestCadence() {
     if (recentEff.isEmpty) return null;
 
-    final buckets = <int, List<double>>{};
-    for (final e in recentEff) {
+    final Map<int, List<double>> buckets = {};
+    for (var e in recentEff) {
       final c = e["cadence"] as int;
       final eff = e["efficiency"] as double;
       buckets.putIfAbsent(c, () => []).add(eff);
@@ -147,6 +129,7 @@ class RideState extends ChangeNotifier {
 
     int? bestCad;
     double bestEff = -1;
+
     buckets.forEach((cad, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
@@ -154,41 +137,43 @@ class RideState extends ChangeNotifier {
         bestCad = cad;
       }
     });
+
     return bestCad;
   }
 
   int? _monthlyBestCadence() {
-    final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    final samples =
-        _effBox.values.where((e) => e.time.isAfter(cutoff)).toList();
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(days: 30));
+
+    final samples = _effBox.values.where((e) => e.time.isAfter(cutoff)).toList();
     if (samples.isEmpty) return null;
 
-    final buckets = <int, List<double>>{};
+    final Map<int, List<double>> byCadence = {};
     for (final s in samples) {
-      buckets.putIfAbsent(s.cadence, () => []).add(s.efficiency);
+      byCadence.putIfAbsent(s.cadence, () => []).add(s.efficiency);
     }
 
     int? bestCad;
     double bestEff = -1;
-    buckets.forEach((cad, list) {
+
+    byCadence.forEach((cad, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
         bestEff = avg;
         bestCad = cad;
       }
     });
+
     return bestCad;
   }
 
   List<EffSample> get last30DaySamples {
-    final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    return _effBox.values
-        .where((e) => e.time.isAfter(cutoff))
-        .toList()
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(days: 30));
+    return _effBox.values.where((e) => e.time.isAfter(cutoff)).toList()
       ..sort((a, b) => a.time.compareTo(b.time));
   }
 
-  // ---------- UI helpers ----------
   String get shiftMessage {
     final diff = cadence - optimalCadence;
     if (diff.abs() > 5) {
@@ -203,13 +188,12 @@ class RideState extends ChangeNotifier {
       (cadence - optimalCadence).abs() > 5 ? Colors.red : Colors.green;
 }
 
-// -----------------------------------------------------------
-// BLE Manager: HR + CP (power) + RSC (Stryd) + CSC (cadence)
-// -----------------------------------------------------------
+// -----------------------------
+// BLE Manager (v33: fully fixed cadence)
+// -----------------------------
 class BleManager {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
 
-  // Standard UUIDs
   final Uuid heartRateService =
       Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
   final Uuid heartRateMeasurement =
@@ -225,12 +209,6 @@ class BleManager {
   final Uuid powerMeasurement =
       Uuid.parse("00002A63-0000-1000-8000-00805F9B34FB");
 
-  final Uuid cscService =
-      Uuid.parse("00001816-0000-1000-8000-00805F9B34FB");
-  final Uuid cscMeasurement =
-      Uuid.parse("00002A5B-0000-1000-8000-00805F9B34FB");
-
-  // ---------- Scanner ----------
   Stream<List<DiscoveredDevice>> scan() {
     final devices = <DiscoveredDevice>[];
     return _ble.scanForDevices(withServices: []).map((d) {
@@ -239,162 +217,113 @@ class BleManager {
     });
   }
 
-  int _u16(List<int> b, int o) =>
-      (b[o] & 0xFF) | ((b[o + 1] & 0xFF) << 8);
+  // -----------------------------
+  // UNIVERSAL CYCLING POWER CADENCE PARSER (Rally, Favero, SRM, Stages, Wahoo)
+  // -----------------------------
+  void _parseCyclingPower(List<int> data, RideState ride) {
+    if (data.length < 8) return;
 
-  int _i16(List<int> b, int o) {
-    final v = _u16(b, o);
-    return v >= 0x8000 ? v - 0x10000 : v;
+    // Flags 16-bit little endian
+    int flags = data[0] | (data[1] << 8);
+
+    // Instant power (2 bytes, signed)
+    int power = (data[2] | (data[3] << 8));
+    ride.setPower(power);
+
+    // Crank cadence present (bit 5)
+    bool hasCrank = (flags & 0x20) != 0;
+
+    if (hasCrank) {
+      int crankRevs = data[4] | (data[5] << 8);
+      int crankEvent = data[6] | (data[7] << 8);
+
+      if (ride.lastCrankRevs != null) {
+        int dRevs = crankRevs - ride.lastCrankRevs!;
+        if (dRevs < 0) dRevs += 65536;
+
+        int dTime = crankEvent - ride.lastCrankEventTime!;
+        if (dTime < 0) dTime += 65536;
+
+        double secs = dTime / 1024.0;
+
+        if (secs > 0 && dRevs > 0) {
+          int cadence = ((dRevs / secs) * 60).round();
+
+          if (cadence > 0 && cadence < 200) {
+            ride.setCadence(cadence);
+          }
+        }
+      }
+
+      ride.lastCrankRevs = crankRevs;
+      ride.lastCrankEventTime = crankEvent;
+    }
   }
 
-  // ---------- Connect & subscribe directly ----------
+  // -----------------------------
+  // STRYD RSC (Running Cadence)
+  // -----------------------------
+  void _parseRsc(List<int> data, RideState ride) {
+    if (data.length < 2) return;
+
+    int flags = data[0];
+    bool hasCad = (flags & 0x02) != 0;
+    if (!hasCad) return;
+
+    int oneFoot = data[1];
+    int trueCad = oneFoot * 2;
+
+    if (trueCad > 20 && trueCad < 250) {
+      ride.setCadence(trueCad);
+    }
+  }
+
   Future<void> connect(String deviceId, RideState ride) async {
     _ble.connectToDevice(id: deviceId).listen((update) {
       if (update.connectionState == DeviceConnectionState.connected) {
-        debugPrint("Connected to $deviceId");
-
-        // ---------------- HR ----------------
+        
+        // HR
         final hrChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: heartRateService,
           characteristicId: heartRateMeasurement,
         );
-        _ble.subscribeToCharacteristic(hrChar).listen(
-          (data) {
-            ride.logBytes("HR", data);
-            if (data.length > 1) {
-              ride.setHr(data[1]);
-            }
-          },
-          onError: (e) => debugPrint("HR subscribe error: $e"),
-        );
+        _ble.subscribeToCharacteristic(hrChar).listen((data) {
+          ride.logBytes("HR", data);
+          if (data.length > 1) ride.setHr(data[1]);
+        });
 
-        // ---------------- CP: power only ----------------
+        // Cycling Power
         final powerChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: cyclingPowerService,
           characteristicId: powerMeasurement,
         );
-        _ble.subscribeToCharacteristic(powerChar).listen(
-          (data) {
-            ride.logBytes("CP", data);
+        _ble.subscribeToCharacteristic(powerChar).listen((data) {
+          ride.logBytes("CP", data);
+          _parseCyclingPower(data, ride);
+        });
 
-            if (data.length >= 4) {
-              final p = _i16(data, 2);
-              if (p >= 0 && p < 3000) {
-                ride.setPower(p);
-              }
-            }
-            // No cadence from CP: most meters don't carry it reliably.
-          },
-          onError: (e) => debugPrint("CP subscribe error: $e"),
-        );
-
-        // ---------------- RSC: Stryd running cadence ----------------
+        // Running Cadence (Stryd)
         final rscChar = QualifiedCharacteristic(
           deviceId: deviceId,
           serviceId: rscService,
           characteristicId: rscMeasurement,
         );
-        _ble.subscribeToCharacteristic(rscChar).listen(
-          (data) {
-            ride.logBytes("RSC", data);
-
-            if (ride.mode != "Running") return;
-            if (data.length < 4) return;
-
-            // RSC spec:
-            // byte0 = flags
-            // byte1..2 = speed (m/s * 256)
-            // byte3 = cadence (steps per minute, single-leg for Stryd)
-            final speedRaw = _u16(data, 1);
-            final speedMs = speedRaw / 256.0;
-            final rawCad = data[3] & 0xFF;
-
-            // If basically not moving, cadence = 0
-            if (speedMs < 0.3 || rawCad == 0) {
-              ride.setCadence(0);
-              return;
-            }
-
-            int totalCad = rawCad * 2; // Stryd 80 → 160
-
-            // If raw suddenly tiny but we had good cadence, keep last
-            if (totalCad < 60 &&
-                ride.lastValidRunningCadence != null &&
-                ride.lastValidRunningCadence! > 80) {
-              totalCad = ride.lastValidRunningCadence!;
-            }
-
-            if (totalCad > 0 && totalCad < 260) {
-              ride.setCadence(totalCad);
-            }
-          },
-          onError: (e) => debugPrint("RSC subscribe error: $e"),
-        );
-
-        // ---------------- CSC: bike cadence from any sensor ----------------
-        final cscChar = QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: cscService,
-          characteristicId: cscMeasurement,
-        );
-        _ble.subscribeToCharacteristic(cscChar).listen(
-          (data) {
-            ride.logBytes("CSC", data);
-
-            if (ride.mode != "Cycling") return;
-            if (data.isEmpty) return;
-
-            final flags = data[0];
-            int index = 1;
-
-            // Optional wheel data (6 bytes)
-            if ((flags & 0x01) != 0 && data.length >= index + 6) {
-              // wheel data not used for cadence here
-              index += 6;
-            }
-
-            // Crank data (cadence)
-            if ((flags & 0x02) != 0 && data.length >= index + 4) {
-              final crankRevs = _u16(data, index);
-              final crankEvent = _u16(data, index + 2);
-              _updateCrankCadenceFromRevs(ride, crankRevs, crankEvent);
-            }
-          },
-          onError: (e) => debugPrint("CSC subscribe error: $e"),
-        );
+        _ble.subscribeToCharacteristic(rscChar).listen((data) {
+          ride.logBytes("RSC", data);
+          if (ride.mode == "Running") {
+            _parseRsc(data, ride);
+          }
+        });
       }
-    }, onError: (e) {
-      debugPrint("Connection error: $e");
     });
-  }
-
-  void _updateCrankCadenceFromRevs(
-      RideState ride, int crankRevs, int eventTime) {
-    if (ride.lastCrankRevs != null && ride.lastCrankEventTime != null) {
-      int dRevs = crankRevs - ride.lastCrankRevs!;
-      int dTime = eventTime - ride.lastCrankEventTime!;
-      if (dTime < 0) dTime += 65536; // wrap
-
-      final dt = dTime / 1024.0; // seconds
-      if (dRevs > 0 && dt > 0) {
-        final cad = (dRevs / dt) * 60.0;
-        final cadInt = cad.round();
-        if (cadInt > 0 && cadInt < 200) {
-          ride.setCadence(cadInt);
-        }
-      }
-    }
-
-    ride.lastCrankRevs = crankRevs;
-    ride.lastCrankEventTime = eventTime;
   }
 }
 
-// -----------------------------------------------------------
-// Ride Dashboard UI
-// -----------------------------------------------------------
+// -----------------------------
+// Ride Dashboard
+// -----------------------------
 class RideDashboard extends StatefulWidget {
   const RideDashboard({super.key});
   @override
@@ -434,7 +363,7 @@ class _RideDashboardState extends State<RideDashboard> {
         ),
         actions: [
           PopupMenuButton<String>(
-            onSelected: ride.setMode,
+            onSelected: (v) => ride.setMode(v),
             itemBuilder: (_) => const [
               PopupMenuItem(value: "Cycling", child: Text("Cycling Mode")),
               PopupMenuItem(value: "Running", child: Text("Running Mode")),
@@ -445,8 +374,7 @@ class _RideDashboardState extends State<RideDashboard> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const MonthlyEfficiencyPage()),
+                MaterialPageRoute(builder: (_) => const MonthlyEfficiencyPage()),
               );
             },
           ),
@@ -472,7 +400,6 @@ class _RideDashboardState extends State<RideDashboard> {
       ),
       body: Column(
         children: [
-          // Guidance + metrics
           Expanded(
             flex: 2,
             child: Center(
@@ -482,26 +409,67 @@ class _RideDashboardState extends State<RideDashboard> {
                   Text(
                     ride.shiftMessage,
                     style: TextStyle(
-                      fontSize: 24,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
                       color: ride.alertColor,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 10),
                   Text("Cadence: ${ride.cadence} RPM"),
                   Text("Power: ${ride.power} W"),
                   Text("Heart Rate: ${ride.hr} BPM"),
                   Text(
-                      "Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM"),
+                    "Efficiency: ${ride.efficiency.toStringAsFixed(2)} W/BPM",
+                  ),
                 ],
               ),
             ),
           ),
-          // Recent efficiency graph
+
           Expanded(
             flex: 1,
-            child: EfficiencyGraph(ride: ride),
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: LineChart(
+                LineChartData(
+                  minX: 0,
+                  maxX: ride.recentEff.isEmpty
+                      ? 1
+                      : ride.recentEff.length.toDouble(),
+                  minY: 0,
+                  maxY: ride.recentEff.isEmpty
+                      ? 2
+                      : ride.recentEff
+                              .map((e) => e["efficiency"] as double)
+                              .fold(0.0, (p, e) => e > p ? e : p) +
+                          2,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: ride.recentEff
+                          .asMap()
+                          .entries
+                          .map((e) => FlSpot(
+                                e.key.toDouble(),
+                                e.value["efficiency"] as double,
+                              ))
+                          .toList(),
+                      isCurved: true,
+                      color: Colors.green,
+                      barWidth: 3,
+                      dotData: FlDotData(show: false),
+                    ),
+                  ],
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -509,61 +477,9 @@ class _RideDashboardState extends State<RideDashboard> {
   }
 }
 
-// -----------------------------------------------------------
-// Efficiency Graph
-// -----------------------------------------------------------
-class EfficiencyGraph extends StatelessWidget {
-  final RideState ride;
-  const EfficiencyGraph({super.key, required this.ride});
-
-  @override
-  Widget build(BuildContext context) {
-    final eff = ride.recentEff;
-
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: LineChart(
-        LineChartData(
-          minX: 0,
-          maxX: eff.isEmpty ? 1 : eff.length.toDouble(),
-          minY: 0,
-          maxY: eff.isEmpty
-              ? 2
-              : eff
-                      .map((e) => e["efficiency"] as double)
-                      .fold<double>(0, (p, e) => e > p ? e : p) +
-                  2,
-          lineBarsData: [
-            LineChartBarData(
-              spots: eff
-                  .asMap()
-                  .entries
-                  .map((e) => FlSpot(
-                        e.key.toDouble(),
-                        e.value["efficiency"] as double,
-                      ))
-                  .toList(),
-              isCurved: true,
-              color: Colors.green,
-              barWidth: 3,
-              dotData: FlDotData(show: false),
-            ),
-          ],
-          titlesData: FlTitlesData(
-            leftTitles:
-                AxisTitles(sideTitles: SideTitles(showTitles: true)),
-            bottomTitles:
-                AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// -----------------------------------------------------------
-// BLE Scanner Page (auto-scan)
-// -----------------------------------------------------------
+// -----------------------------
+// Scanner Page
+// -----------------------------
 class BleScannerPage extends StatefulWidget {
   const BleScannerPage({super.key});
 
@@ -615,9 +531,9 @@ class _BleScannerPageState extends State<BleScannerPage> {
   }
 }
 
-// -----------------------------------------------------------
-// Raw BLE Byte Log Page
-// -----------------------------------------------------------
+// -----------------------------
+// Raw BLE Byte Log
+// -----------------------------
 class ByteLogPage extends StatelessWidget {
   const ByteLogPage({super.key});
 
@@ -641,9 +557,9 @@ class ByteLogPage extends StatelessWidget {
   }
 }
 
-// -----------------------------------------------------------
-// Monthly Efficiency Page
-// -----------------------------------------------------------
+// -----------------------------
+// Last 30 Days Efficiency Graph
+// -----------------------------
 class MonthlyEfficiencyPage extends StatelessWidget {
   const MonthlyEfficiencyPage({super.key});
 
@@ -691,8 +607,9 @@ class MonthlyEfficiencyPage extends StatelessWidget {
                     ),
                   ],
                   titlesData: FlTitlesData(
-                    leftTitles:
-                        AxisTitles(sideTitles: SideTitles(showTitles: true)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: true),
+                    ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(showTitles: false),
                     ),
