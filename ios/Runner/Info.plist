@@ -3,6 +3,7 @@
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
 
@@ -27,7 +28,10 @@
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Orientation -->
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+
+    <!-- Orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -37,18 +41,30 @@
 
     <!-- Permissions -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>App uses GPS to measure velocity and optimise rhythm.</string>
+    <string>This app uses GPS to measure velocity and optimise efficiency.</string>
+
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>App uses Bluetooth to connect to your heart rate strap.</string>
+    <string>This app connects to Bluetooth heart-rate straps for optimisation.</string>
+
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Bluetooth access is required for HR strap connectivity.</string>
+    <string>Bluetooth is required for real-time heart-rate data.</string>
+
+    <!-- HealthKit optional compatibility -->
+    <key>NSHealthShareUsageDescription</key>
+    <string>This app may read workout data from Apple Health for better optimisation.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>This app may write efficiency and optimisation metrics to Apple Health.</string>
+
+    <!-- Background BLE -->
     <key>UIBackgroundModes</key>
     <array>
-        <string>location</string>
         <string>bluetooth-central</string>
+        <string>location</string>
     </array>
 
+    <!-- No encryption notice -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+
 </dict>
 </plist>
