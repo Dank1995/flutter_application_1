@@ -50,7 +50,7 @@ class MyApp extends StatelessWidget {
 
 class OptimiserState extends ChangeNotifier {
   double hr = 0;
-  double velocity = 0; // km/h
+  double velocity = 0; // km/h (smoothed)
   double efficiency = 0; // km/h per bpm
   bool recording = false;
 
@@ -59,6 +59,10 @@ class OptimiserState extends ChangeNotifier {
 
   int rhythmTargetBucket = 0;
   String? rhythmTargetPrompt;
+
+  // Smoothed velocity internals
+  double _smoothVelocity = 0;
+  static const double _alpha = 0.15; // Garmin-ish: very smooth
 
   void toggleRecording() {
     recording = !recording;
@@ -71,11 +75,28 @@ class OptimiserState extends ChangeNotifier {
     _updateEfficiency();
   }
 
+  /// mps = metres per second from GPS
   void setVelocity(double mps) {
-    double v = (mps * 3.6);
-    if (v.isNaN || v.isInfinite) return;
-    if (v < 0 || v > 36) v = 0;
-    velocity = v;
+    double v = mps * 3.6; // convert to km/h
+
+    // Basic sanity checks
+    if (v.isNaN || v.isInfinite || v < 0) return;
+
+    // Hard cap for realistic running speeds; ignore insane spikes
+    if (v > 25) {
+      // treat as a glitch: do not update velocity at all
+      _updateEfficiency();
+      return;
+    }
+
+    // Exponential Moving Average smoothing
+    if (_smoothVelocity == 0) {
+      _smoothVelocity = v;
+    } else {
+      _smoothVelocity = (_alpha * v) + ((1 - _alpha) * _smoothVelocity);
+    }
+
+    velocity = _smoothVelocity;
     _updateEfficiency();
   }
 
@@ -94,7 +115,7 @@ class OptimiserState extends ChangeNotifier {
     recentEff.add({
       "eff": efficiency,
       "vel": velocity,
-      "time": DateTime.now()
+      "time": DateTime.now(),
     });
     if (recentEff.length > 15) recentEff.removeAt(0);
 
@@ -253,9 +274,8 @@ class BleManager extends ChangeNotifier {
           characteristicId: hrMeasurement,
         );
 
-        _hrSub = _ble
-            .subscribeToCharacteristic(hrChar)
-            .listen((data) {
+        _hrSub = _ble.subscribeToCharacteristic(hrChar).listen((data) {
+          // Basic HR parsing: 2nd byte is bpm when 8-bit format
           if (data.length > 1) opt.setHr(data[1].toDouble());
         });
       } else if (event.connectionState ==
@@ -318,25 +338,32 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
       ),
     ).listen((pos) {
       final opt = context.read<OptimiserState>();
+
       if (_lastPosition != null &&
           pos.timestamp != null &&
-          _lastPosition?.timestamp != null) {
+          _lastPosition!.timestamp != null) {
         final dt = pos.timestamp!
                 .difference(_lastPosition!.timestamp!)
                 .inMilliseconds /
-            1000;
-        if (dt > 0) {
+            1000.0;
+
+        // Ignore weird or too-fast updates
+        if (dt >= 0.5 && dt <= 5) {
           final dist = Geolocator.distanceBetween(
             _lastPosition!.latitude,
             _lastPosition!.longitude,
             pos.latitude,
             pos.longitude,
           );
-          double v = dist / dt;
-          if (v > 10) v = 0;
-          opt.setVelocity(v);
+
+          // Ignore big jumps (GPS glitches), e.g. >20m in one step
+          if (dist <= 20) {
+            final v = dist / dt; // m/s
+            opt.setVelocity(v);
+          }
         }
       }
+
       _lastPosition = pos;
     });
   }
@@ -435,7 +462,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
 }
 
 // ============================================================
-// FIXED BLE BOTTOM SHEET (NO DOUBLE SCANS)
+// BLE BOTTOM SHEET (NO DOUBLE SCANS)
 // ============================================================
 
 class _BleBottomSheet extends StatefulWidget {
