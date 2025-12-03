@@ -10,8 +10,9 @@
     <key>CFBundleDisplayName</key>
     <string>PhysiologicalOptimiser</string>
 
+    <!-- Correct bundle ID -->
     <key>CFBundleIdentifier</key>
-    <string>com.physiologicaloptimiser.app</string>
+    <string>PhysiologicalOptimiser</string>
 
     <key>CFBundleExecutable</key>
     <string>Runner</string>
@@ -19,8 +20,9 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
 
+    <!-- Incremented build number -->
     <key>CFBundleVersion</key>
-    <string>38</string>
+    <string>39</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -49,20 +51,20 @@
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>Bluetooth is required for real-time heart-rate data.</string>
 
-    <!-- HealthKit optional compatibility -->
+    <!-- Optional HealthKit integration -->
     <key>NSHealthShareUsageDescription</key>
     <string>This app may read workout data from Apple Health for better optimisation.</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>This app may write efficiency and optimisation metrics to Apple Health.</string>
 
-    <!-- Background BLE -->
+    <!-- Background access -->
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>
         <string>location</string>
     </array>
 
-    <!-- No encryption notice -->
+    <!-- Apple encryption compliance -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 
