@@ -44,7 +44,9 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ----------------------------- STATE -----------------------------
+// ============================================================
+// STATE
+// ============================================================
 
 class OptimiserState extends ChangeNotifier {
   double hr = 0;
@@ -70,10 +72,9 @@ class OptimiserState extends ChangeNotifier {
   }
 
   void setVelocity(double mps) {
-    // Convert to km/h, clamp obvious GPS spikes to 0 (stationary)
     double v = (mps * 3.6);
     if (v.isNaN || v.isInfinite) return;
-    if (v < 0 || v > 36) v = 0; // >10 m/s (36 km/h) is unlikely for running
+    if (v < 0 || v > 36) v = 0;
     velocity = v;
     _updateEfficiency();
   }
@@ -90,7 +91,11 @@ class OptimiserState extends ChangeNotifier {
     if (!recording || hr <= 0 || velocity <= 0) return;
 
     efficiency = velocity / hr;
-    recentEff.add({"eff": efficiency, "vel": velocity, "time": DateTime.now()});
+    recentEff.add({
+      "eff": efficiency,
+      "vel": velocity,
+      "time": DateTime.now()
+    });
     if (recentEff.length > 15) recentEff.removeAt(0);
 
     final rhythm = (efficiency * 100).round();
@@ -171,17 +176,23 @@ class OptimiserState extends ChangeNotifier {
 
   List<EffSample> get last30Days {
     final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    return _effBox.values.where((e) => e.time.isAfter(cutoff)).toList()
+    return _effBox.values
+        .where((e) => e.time.isAfter(cutoff))
+        .toList()
       ..sort((a, b) => a.time.compareTo(b.time));
   }
 }
 
-// ----------------------------- BLE -----------------------------
+// ============================================================
+// BLE MANAGER
+// ============================================================
 
 class BleManager extends ChangeNotifier {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
-  final Uuid hrService = Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
-  final Uuid hrMeasurement = Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
+  final Uuid hrService =
+      Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
+  final Uuid hrMeasurement =
+      Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
   StreamSubscription<DiscoveredDevice>? _scanSub;
   StreamSubscription<ConnectionStateUpdate>? _connSub;
@@ -197,7 +208,8 @@ class BleManager extends ChangeNotifier {
     await Permission.bluetoothConnect.request();
   }
 
-  Future<List<DiscoveredDevice>> scanDevices({Duration timeout = const Duration(seconds: 5)}) async {
+  Future<List<DiscoveredDevice>> scanDevices(
+      {Duration timeout = const Duration(seconds: 5)}) async {
     await ensurePermissions();
     final List<DiscoveredDevice> devices = [];
     _scanSub?.cancel();
@@ -205,6 +217,7 @@ class BleManager extends ChangeNotifier {
     notifyListeners();
 
     final completer = Completer<List<DiscoveredDevice>>();
+
     _scanSub = _ble.scanForDevices(withServices: []).listen((device) {
       if (!devices.any((d) => d.id == device.id)) {
         devices.add(device);
@@ -240,11 +253,13 @@ class BleManager extends ChangeNotifier {
           characteristicId: hrMeasurement,
         );
 
-        _hrSub = _ble.subscribeToCharacteristic(hrChar).listen((data) {
-          // Basic HR parsing: 2nd byte is bpm when 8-bit format
+        _hrSub = _ble
+            .subscribeToCharacteristic(hrChar)
+            .listen((data) {
           if (data.length > 1) opt.setHr(data[1].toDouble());
-        }, onError: (_) {});
-      } else if (event.connectionState == DeviceConnectionState.disconnected) {
+        });
+      } else if (event.connectionState ==
+          DeviceConnectionState.disconnected) {
         connectedId = null;
         connectedName = null;
         notifyListeners();
@@ -265,12 +280,15 @@ class BleManager extends ChangeNotifier {
   }
 }
 
-// ----------------------------- UI -----------------------------
+// ============================================================
+// DASHBOARD UI
+// ============================================================
 
 class OptimiserDashboard extends StatefulWidget {
   const OptimiserDashboard({super.key});
   @override
-  State<OptimiserDashboard> createState() => _OptimiserDashboardState();
+  State<OptimiserDashboard> createState() =>
+      _OptimiserDashboardState();
 }
 
 class _OptimiserDashboardState extends State<OptimiserDashboard> {
@@ -314,8 +332,8 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             pos.latitude,
             pos.longitude,
           );
-          double v = dist / dt; // m/s
-          if (v > 10) v = 0; // filter spikes
+          double v = dist / dt;
+          if (v > 10) v = 0;
           opt.setVelocity(v);
         }
       }
@@ -325,10 +343,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
 
   Future<void> _showBleSheet() async {
     final ble = context.read<BleManager>();
-    final opt = context.read<OptimiserState>();
 
-    // Always show the button; sheet lists devices (or shows "Scanning...")
-    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -339,12 +354,6 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
         );
       },
     );
-
-    // kick off scan after the sheet is opened
-    await ble.scanDevices();
-
-    // When user taps a device in the sheet, connection happens there.
-    // Nothing else needed here.
   }
 
   @override
@@ -354,7 +363,6 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
 
     return Scaffold(
       appBar: AppBar(
-        // ***** TOP-LEFT BLUETOOTH BUTTON *****
         leading: IconButton(
           icon: Icon(
             ble.connectedId == null
@@ -364,7 +372,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
           tooltip: ble.connectedName == null
               ? 'Bluetooth devices'
               : 'Connected: ${ble.connectedName}',
-          onPressed: _showBleSheet, // always opens device list
+          onPressed: _showBleSheet,
         ),
         title: const Text("Physiological Optimiser"),
         actions: [
@@ -374,7 +382,8 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const EfficiencyHistory()),
+                MaterialPageRoute(
+                    builder: (_) => const EfficiencyHistory()),
               );
             },
           ),
@@ -395,20 +404,24 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
           const SizedBox(height: 10),
           Text("HR: ${opt.hr.toStringAsFixed(0)} bpm"),
           Text("Velocity: ${opt.velocity.toStringAsFixed(2)} km/h"),
-          Text("Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
+          Text(
+              "Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
           const SizedBox(height: 20),
           SizedBox(height: 200, child: EfficiencyGraph(opt: opt)),
           const SizedBox(height: 12),
           if (ble.connectedName != null)
             Text(
               "Connected to: ${ble.connectedName}",
-              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              style: const TextStyle(
+                  fontSize: 12, color: Colors.black54),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: opt.recording ? Colors.red : Colors.green,
-        child: Icon(opt.recording ? Icons.stop : Icons.play_arrow),
+        backgroundColor:
+            opt.recording ? Colors.red : Colors.green,
+        child: Icon(
+            opt.recording ? Icons.stop : Icons.play_arrow),
         onPressed: () => opt.toggleRecording(),
       ),
     );
@@ -421,12 +434,37 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
   }
 }
 
-class _BleBottomSheet extends StatelessWidget {
+// ============================================================
+// FIXED BLE BOTTOM SHEET (NO DOUBLE SCANS)
+// ============================================================
+
+class _BleBottomSheet extends StatefulWidget {
   const _BleBottomSheet();
+
+  @override
+  State<_BleBottomSheet> createState() =>
+      _BleBottomSheetState();
+}
+
+class _BleBottomSheetState extends State<_BleBottomSheet> {
+  List<DiscoveredDevice> devices = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _startScan();
+  }
+
+  Future<void> _startScan() async {
+    final ble = context.read<BleManager>();
+    devices = await ble.scanDevices();
+    if (mounted) setState(() {});
+  }
 
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleManager>();
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -442,7 +480,7 @@ class _BleBottomSheet extends StatelessWidget {
                       ? "Scanning for devices…"
                       : "Bluetooth devices",
                   style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w600),
+                      fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 if (ble.connectedId != null)
@@ -453,50 +491,49 @@ class _BleBottomSheet extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+
+            const SizedBox(height: 12),
+
             Flexible(
-              child: FutureBuilder<List<DiscoveredDevice>>(
-                future: ble.scanDevices(),
-                builder: (ctx, snap) {
-                  final devices = snap.data ?? const <DiscoveredDevice>[];
-                  if (devices.isEmpty) {
-                    return const Padding(
+              child: devices.isEmpty
+                  ? const Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
                         "No devices found yet.\n"
-                        "Make sure your HR strap is on and in pairing mode.",
+                        "Ensure your HR strap is powered on.",
                         textAlign: TextAlign.center,
                       ),
-                    );
-                  }
-                  return ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: devices.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (ctx, i) {
-                      final d = devices[i];
-                      final name = d.name.isNotEmpty ? d.name : "(unknown)";
-                      return ListTile(
-                        leading: const Icon(Icons.watch),
-                        title: Text(name),
-                        subtitle: Text(d.id),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () async {
-                          final opt = context.read<OptimiserState>();
-                          await ble.connect(d.id, name, opt);
-                          if (ctx.mounted) Navigator.pop(ctx);
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
+                    )
+                  : ListView.separated(
+                      itemCount: devices.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1),
+                      itemBuilder: (ctx, i) {
+                        final d = devices[i];
+                        final name =
+                            d.name.isNotEmpty ? d.name : "(unknown)";
+                        return ListTile(
+                          leading: const Icon(Icons.watch),
+                          title: Text(name),
+                          subtitle: Text(d.id),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () async {
+                            final opt =
+                                context.read<OptimiserState>();
+                            await ble.connect(d.id, name, opt);
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          },
+                        );
+                      },
+                    ),
             ),
+
             const SizedBox(height: 8),
+
             Row(
               children: [
                 TextButton.icon(
-                  onPressed: () => ble.scanDevices(),
+                  onPressed: _startScan,
                   icon: const Icon(Icons.refresh),
                   label: const Text("Rescan"),
                 ),
@@ -514,6 +551,10 @@ class _BleBottomSheet extends StatelessWidget {
   }
 }
 
+// ============================================================
+// GRAPHS + HISTORY
+// ============================================================
+
 class EfficiencyGraph extends StatelessWidget {
   final OptimiserState opt;
   const EfficiencyGraph({super.key, required this.opt});
@@ -523,21 +564,25 @@ class EfficiencyGraph extends StatelessWidget {
     final points = opt.recentEff
         .asMap()
         .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value["eff"]))
+        .map((e) =>
+            FlSpot(e.key.toDouble(), e.value["eff"]))
         .toList();
 
     return LineChart(
       LineChartData(
         minX: 0,
-        maxX: points.isEmpty ? 1 : points.length.toDouble(),
+        maxX:
+            points.isEmpty ? 1 : points.length.toDouble(),
         minY: 0,
         lineBarsData: [
           LineChartBarData(
             spots: points,
             isCurved: true,
             dotData: FlDotData(show: false),
-            belowBarData:
-                BarAreaData(show: true, color: Colors.blue.withOpacity(0.2)),
+            belowBarData: BarAreaData(
+              show: true,
+              color: Colors.blue.withOpacity(0.2),
+            ),
           ),
         ],
       ),
@@ -555,17 +600,20 @@ class EfficiencyHistory extends StatelessWidget {
     final points = data
         .asMap()
         .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value.efficiency))
+        .map((e) =>
+            FlSpot(e.key.toDouble(), e.value.efficiency))
         .toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text("30-Day Efficiency History")),
+      appBar: AppBar(
+          title: const Text("30-Day Efficiency History")),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: LineChart(
           LineChartData(
             minX: 0,
-            maxX: points.isEmpty ? 1 : points.length.toDouble(),
+            maxX:
+                points.isEmpty ? 1 : points.length.toDouble(),
             minY: 0,
             lineBarsData: [
               LineChartBarData(
@@ -573,7 +621,9 @@ class EfficiencyHistory extends StatelessWidget {
                 isCurved: true,
                 color: Colors.orange,
                 belowBarData: BarAreaData(
-                  show: true, color: Colors.orange.withOpacity(0.2)),
+                  show: true,
+                  color: Colors.orange.withOpacity(0.2),
+                ),
               ),
             ],
           ),
