@@ -11,10 +11,10 @@ class EffSample {
   double efficiency;
 
   @HiveField(2)
-  int rhythm; // renamed from cadence — stores rhythm bucket
+  int rhythm; // <-- NOT cadence, NOT bucket
 
   @HiveField(3)
-  String prompt; // what feedback was given (“up”, “down”, “optimal”)
+  String prompt; // “up”, “down”, “optimal”
 
   EffSample(this.time, this.efficiency, this.rhythm, this.prompt);
 }
