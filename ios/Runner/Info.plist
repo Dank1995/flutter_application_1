@@ -10,7 +10,6 @@
     <key>CFBundleDisplayName</key>
     <string>PhysiologicalOptimiser</string>
 
-    <!-- Correct bundle ID -->
     <key>CFBundleIdentifier</key>
     <string>PhysiologicalOptimiser</string>
 
@@ -20,9 +19,8 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
 
-    <!-- Incremented build number -->
     <key>CFBundleVersion</key>
-    <string>39</string>
+    <string>36</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -30,41 +28,39 @@
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <key>UIMainStoryboardFile</key>
-    <string>Main</string>
-
-    <!-- Orientations -->
+    <!-- ✅ Fixed: must include all four orientations for both iPhone and iPad -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
     <!-- Permissions -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app uses GPS to measure velocity and optimise efficiency.</string>
+    <string>Used to measure real-time velocity during workouts.</string>
 
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to Bluetooth heart-rate straps for optimisation.</string>
+    <string>Used to connect to heart rate monitors for physiological optimisation.</string>
 
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Bluetooth is required for real-time heart-rate data.</string>
+    <string>Used to connect to Bluetooth heart rate devices.</string>
 
-    <!-- Optional HealthKit integration -->
     <key>NSHealthShareUsageDescription</key>
-    <string>This app may read workout data from Apple Health for better optimisation.</string>
+    <string>This app reads heart rate and workout data to optimise training efficiency.</string>
+
     <key>NSHealthUpdateUsageDescription</key>
-    <string>This app may write efficiency and optimisation metrics to Apple Health.</string>
+    <string>This app writes training efficiency metrics to Apple Health.</string>
 
-    <!-- Background access -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>
-        <string>location</string>
-    </array>
-
-    <!-- Apple encryption compliance -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 
