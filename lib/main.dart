@@ -45,10 +45,11 @@ class MyApp extends StatelessWidget {
 }
 
 // ============================================================
-// STATE
+// OPTIMISER STATE 2.0 (with reinforcement learning)
 // ============================================================
 
 class OptimiserState extends ChangeNotifier {
+  // ---------- Core state ----------
   double hr = 0;
   double velocity = 0; // km/h (smoothed)
   double efficiency = 0; // km/h per bpm
@@ -57,13 +58,28 @@ class OptimiserState extends ChangeNotifier {
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
   final List<Map<String, dynamic>> recentEff = [];
 
-  int rhythmTargetBucket = 0;      // historical best "bucket" (eff * 100)
-  String? rhythmTargetPrompt;      // best prompt over last 30 days
-  double? rhythmTargetEff;         // best average efficiency (km/h per bpm)
+  // Long-term target (over last 30 days)
+  int rhythmTargetBucket = 0;   // eff*100 bucket with best avg efficiency
+  double? rhythmTargetEff;      // actual best avg efficiency
+  String? rhythmTargetPrompt;   // historically best-performing prompt (optional)
+
+  // Current real-time prompt shown to athlete
+  String _currentPrompt = "Learning rhythm...";
 
   // Smoothed velocity internals
   double _smoothVelocity = 0;
-  static const double _alpha = 0.15; // Garmin-ish: very smooth
+  static const double _alpha = 0.15; // smoothing factor for velocity
+
+  // ---------- Reinforcement learning memory ----------
+  // Each entry: {prompt, hr, velocity, effBefore, effAfter, delta, time}
+  final List<Map<String, dynamic>> reinforcementMemory = [];
+
+  // Active prompt event being evaluated
+  String? _activePrompt;
+  DateTime? _activePromptTime;
+  double? _activePromptEff;
+  double? _activePromptVel;
+  double? _activePromptHr;
 
   void toggleRecording() {
     recording = !recording;
@@ -80,17 +96,15 @@ class OptimiserState extends ChangeNotifier {
   void setVelocity(double mps) {
     double v = mps * 3.6; // convert to km/h
 
-    // Basic sanity checks
     if (v.isNaN || v.isInfinite || v < 0) return;
 
-    // Hard cap for realistic running speeds; ignore insane spikes
+    // Hard cap: ignore insane spikes (>25 km/h running)
     if (v > 25) {
-      // treat as a glitch: do not update velocity at all
-      _updateEfficiency();
+      _updateEfficiency(); // keep previous smoothed velocity
       return;
     }
 
-    // Exponential Moving Average smoothing
+    // Exponential moving average smoothing
     if (_smoothVelocity == 0) {
       _smoothVelocity = v;
     } else {
@@ -103,7 +117,7 @@ class OptimiserState extends ChangeNotifier {
 
   Future<void> loadTarget() async {
     if (_effBox.isNotEmpty) {
-      rhythmTargetBucket = _computeOptimalBucket(); // also sets rhythmTargetEff
+      rhythmTargetBucket = _computeOptimalBucket(); // sets rhythmTargetEff
       rhythmTargetPrompt = _computeOptimalPrompt();
       notifyListeners();
     }
@@ -112,7 +126,13 @@ class OptimiserState extends ChangeNotifier {
   void _updateEfficiency() {
     if (!recording || hr <= 0 || velocity <= 0) return;
 
+    // Compute current efficiency
     efficiency = velocity / hr;
+
+    // First: evaluate effect of any previous prompt (20–40s window)
+    _evaluateActivePrompt();
+
+    // Track recent samples for graph
     recentEff.add({
       "eff": efficiency,
       "vel": velocity,
@@ -120,25 +140,33 @@ class OptimiserState extends ChangeNotifier {
     });
     if (recentEff.length > 15) recentEff.removeAt(0);
 
+    // Compute real-time adaptive prompt (also sets _currentPrompt & active prompt)
     final rhythm = (efficiency * 100).round();
+    final promptNow = _computeAdaptivePrompt(efficiency);
 
-    // New adaptive logic uses real efficiency, not bucket int
-    final currentPrompt = _computeAdaptivePrompt(efficiency);
+    // Persist this sample
+    _effBox.add(EffSample(
+      DateTime.now(),
+      efficiency,
+      rhythm,
+      promptNow,
+    ));
 
-    _effBox.add(EffSample(DateTime.now(), efficiency, rhythm, currentPrompt));
-
-    rhythmTargetBucket = _computeOptimalBucket(); // refresh best bucket & eff
+    // Refresh long-term targets from last 30 days
+    rhythmTargetBucket = _computeOptimalBucket();
     rhythmTargetPrompt = _computeOptimalPrompt();
+
     notifyListeners();
   }
 
-  /// Find the rhythm bucket (eff*100 integer) with highest average efficiency
-  /// over the last 30 days, and record its average efficiency as target.
+  // ---------- Long-term target calculation (30-day window) ----------
+
   int _computeOptimalBucket() {
     final now = DateTime.now();
     final samples = _effBox.values
         .where((e) => e.time.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
+
     if (samples.isEmpty) {
       rhythmTargetEff = null;
       return 0;
@@ -164,7 +192,6 @@ class OptimiserState extends ChangeNotifier {
     return bestBucket ?? 0;
   }
 
-  /// Find the prompt text that historically produced the best avg efficiency.
   String? _computeOptimalPrompt() {
     final now = DateTime.now();
     final samples = _effBox.values
@@ -179,6 +206,7 @@ class OptimiserState extends ChangeNotifier {
 
     String? bestPrompt;
     double bestEff = -1;
+
     prompts.forEach((p, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
@@ -186,48 +214,161 @@ class OptimiserState extends ChangeNotifier {
         bestPrompt = p;
       }
     });
+
     return bestPrompt;
   }
 
-  /// New wide-band adaptive prompt:
-  /// - Uses actual efficiency (km/h per bpm)
-  /// - Compares to rhythmTargetEff
-  /// - Wide band ±5%: within this → "Optimal rhythm"
-  /// - Below target eff → "Increase rhythm"
-  /// - Above target eff → "Ease rhythm"
+  // ---------- Reinforcement evaluation (did the last prompt work?) ----------
+
+  void _evaluateActivePrompt() {
+    if (_activePromptTime == null ||
+        _activePromptEff == null ||
+        _activePromptHr == null ||
+        _activePromptVel == null) return;
+
+    // We only care once, between 20–40 seconds after the prompt change
+    final dt = DateTime.now().difference(_activePromptTime!).inSeconds;
+
+    if (dt < 20) {
+      // Not yet time to evaluate
+      return;
+    }
+
+    if (dt > 40) {
+      // Window expired, drop this event without learning
+      _activePromptTime = null;
+      return;
+    }
+
+    // Evaluate efficiency change
+    final double effBefore = _activePromptEff!;
+    final double effAfter = efficiency;
+    final double delta = effAfter - effBefore;
+
+    // Optionally ignore "Learning rhythm..." prompts
+    if (_activePrompt == null || _activePrompt == "Learning rhythm...") {
+      _activePromptTime = null;
+      return;
+    }
+
+    reinforcementMemory.add({
+      "prompt": _activePrompt,
+      "hr": _activePromptHr!,
+      "velocity": _activePromptVel!,
+      "effBefore": effBefore,
+      "effAfter": effAfter,
+      "delta": delta,
+      "time": DateTime.now(),
+    });
+
+    // Keep memory bounded
+    if (reinforcementMemory.length > 500) {
+      reinforcementMemory.removeAt(0);
+    }
+
+    // Clear so we don't evaluate again
+    _activePromptTime = null;
+  }
+
+  double _avgDeltaForPrompt(
+      List<Map<String, dynamic>> list, String prompt) {
+    final filtered = list.where((e) => e["prompt"] == prompt).toList();
+    if (filtered.isEmpty) return 0.0;
+    final sum = filtered
+        .map((e) => e["delta"] as double)
+        .fold(0.0, (a, b) => a + b);
+    return sum / filtered.length;
+  }
+
+  // ---------- Adaptive prompt (efficiency + reinforcement) ----------
+
   String _computeAdaptivePrompt(double currentEff) {
-    // No learned target yet
+    // If we don't have a learned target yet, we're in calibration mode
     if (rhythmTargetEff == null || rhythmTargetEff! <= 0) {
-      return "Learning rhythm...";
+      _setActivePrompt("Learning rhythm...", currentEff);
+      return _currentPrompt;
     }
 
     final target = rhythmTargetEff!;
-    final relDiffPercent = ((currentEff - target) / target).abs() * 100.0;
+    final relDiffPercent =
+        ((currentEff - target) / target).abs() * 100.0;
 
-    const thresholdPercent = 5.0; // ±5% wide-band
+    const bandPercent = 5.0; // ±5% wide band for "Optimal"
 
-    if (relDiffPercent <= thresholdPercent) {
-      return "Optimal rhythm";
+    // 1) Base prompt purely from efficiency vs target
+    String basePrompt;
+    if (relDiffPercent <= bandPercent) {
+      basePrompt = "Optimal rhythm";
+    } else if (currentEff < target) {
+      basePrompt = "Increase rhythm"; // less efficient than best → try increase
+    } else {
+      basePrompt = "Ease rhythm"; // above best-eff zone → likely overstraining
     }
 
-    // Direction:
-    // - If current efficiency is BELOW target → you are less efficient → "Increase rhythm"
-    // - If current efficiency is ABOVE target → you're burning too much per bpm → "Ease rhythm"
-    if (currentEff < target) {
-      return "Increase rhythm";
-    } else {
-      return "Ease rhythm";
+    // 2) See if we have reinforcement data for similar conditions
+    final similar = reinforcementMemory.where((m) {
+      final double phr = m["hr"] as double;
+      final double pvel = m["velocity"] as double;
+      return (phr - hr).abs() <= 5.0 &&
+             (pvel - velocity).abs() <= 1.5;
+    }).toList();
+
+    String finalPrompt = basePrompt;
+
+    if (similar.isNotEmpty) {
+      double bestScore = double.negativeInfinity;
+      String? bestPrompt;
+
+      for (final candidate in const [
+        "Increase rhythm",
+        "Ease rhythm",
+        "Optimal rhythm",
+      ]) {
+        final score = _avgDeltaForPrompt(similar, candidate);
+        if (score > bestScore) {
+          bestScore = score;
+          bestPrompt = candidate;
+        }
+      }
+
+      // Only trust reinforcement if it actually tends to improve efficiency
+      const double minUsefulDelta = 0.0005; // small eff improvement threshold
+
+      if (bestPrompt != null && bestScore > minUsefulDelta) {
+        finalPrompt = bestPrompt;
+      }
+    }
+
+    // 3) Record this as the current prompt and potential reinforcement event
+    _setActivePrompt(finalPrompt, currentEff);
+
+    return _currentPrompt;
+  }
+
+  void _setActivePrompt(String prompt, double currentEff) {
+    _currentPrompt = prompt;
+
+    // Only consider it a new "prompt event" if it changed
+    if (prompt != _activePrompt) {
+      _activePrompt = prompt;
+      _activePromptTime = DateTime.now();
+      _activePromptEff = currentEff;
+      _activePromptVel = velocity;
+      _activePromptHr = hr;
     }
   }
 
+  // ---------- Public getters for UI ----------
+
   String get rhythmAdvice {
     if (!recording) return "Tap ▶ to start workout";
-    return rhythmTargetPrompt ?? "Learning rhythm...";
+    return _currentPrompt;
   }
 
   Color get rhythmColor {
     if (!recording) return Colors.grey;
-    if (rhythmAdvice == "Optimal rhythm") return Colors.green;
+    if (_currentPrompt == "Optimal rhythm") return Colors.green;
+    if (_currentPrompt == "Learning rhythm...") return Colors.grey;
     return Colors.orange;
   }
 
