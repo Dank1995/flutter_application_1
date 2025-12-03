@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 Fixes StreamSubscription error
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
@@ -14,9 +14,12 @@ void main() async {
   Hive.registerAdapter(EffSampleAdapter());
   await Hive.openBox<EffSample>('efficiencyBox');
 
+  final opt = OptimiserState();
+  await opt.loadTarget();
+
   runApp(MultiProvider(
     providers: [
-      ChangeNotifierProvider(create: (_) => OptimiserState()),
+      ChangeNotifierProvider(create: (_) => opt),
       Provider(create: (_) => BleManager()),
     ],
     child: const MyApp(),
@@ -44,7 +47,7 @@ class OptimiserState extends ChangeNotifier {
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
   final List<Map<String, dynamic>> recentEff = [];
 
-  int rhythmTargetBucket = 0;
+  int rhythmTarget = 0;
   String? rhythmTargetPrompt;
 
   void toggleRecording() {
@@ -62,6 +65,14 @@ class OptimiserState extends ChangeNotifier {
     _updateEfficiency();
   }
 
+  Future<void> loadTarget() async {
+    if (_effBox.isNotEmpty) {
+      rhythmTarget = _computeOptimalRhythm();
+      rhythmTargetPrompt = _computeOptimalPrompt();
+      notifyListeners();
+    }
+  }
+
   void _updateEfficiency() {
     if (!recording || hr <= 0 || velocity <= 0) return;
 
@@ -69,35 +80,35 @@ class OptimiserState extends ChangeNotifier {
     recentEff.add({"eff": efficiency, "vel": velocity, "time": DateTime.now()});
     if (recentEff.length > 15) recentEff.removeAt(0);
 
-    final bucket = (efficiency * 100).round();
-    final currentPrompt = rhythmAdvice;
+    final rhythm = (efficiency * 100).round();
+    final currentPrompt = _computeAdaptivePrompt(rhythm.toDouble());
 
-    _effBox.add(EffSample(DateTime.now(), efficiency, bucket, currentPrompt));
+    _effBox.add(EffSample(DateTime.now(), efficiency, rhythm, currentPrompt));
 
-    rhythmTargetBucket = _computeOptimalBucket();
+    rhythmTarget = _computeOptimalRhythm();
     rhythmTargetPrompt = _computeOptimalPrompt();
     notifyListeners();
   }
 
-  int _computeOptimalBucket() {
+  int _computeOptimalRhythm() {
     final now = DateTime.now();
     final samples = _effBox.values
         .where((e) => e.time.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
     if (samples.isEmpty) return 0;
 
-    final Map<int, List<double>> buckets = {};
+    final Map<int, List<double>> rhythms = {};
     for (final s in samples) {
-      buckets.putIfAbsent(s.bucket, () => []).add(s.efficiency);
+      rhythms.putIfAbsent(s.rhythm, () => []).add(s.efficiency);
     }
 
     int? best;
     double bestEff = -1;
-    buckets.forEach((v, list) {
+    rhythms.forEach((r, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
         bestEff = avg;
-        best = v;
+        best = r;
       }
     });
     return best ?? 0;
@@ -110,34 +121,31 @@ class OptimiserState extends ChangeNotifier {
         .toList();
     if (samples.isEmpty) return null;
 
-    final Map<String, List<double>> buckets = {};
+    final Map<String, List<double>> prompts = {};
     for (final s in samples) {
-      buckets.putIfAbsent(s.prompt, () => []).add(s.efficiency);
+      prompts.putIfAbsent(s.prompt, () => []).add(s.efficiency);
     }
 
     String? bestPrompt;
     double bestEff = -1;
-    buckets.forEach((prompt, list) {
+    prompts.forEach((p, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
         bestEff = avg;
-        bestPrompt = prompt;
+        bestPrompt = p;
       }
     });
-
     return bestPrompt;
   }
 
-  String get rhythmAdvice {
-    if (!recording) return "Tap ▶ to start workout";
-    if (efficiency <= 0) return "Learning your rhythm...";
-    if (rhythmTargetPrompt != null) return rhythmTargetPrompt!;
-
-    final diff = velocity - rhythmTargetBucket;
-    if (diff.abs() < 0.5) return "Optimal rhythm";
-    return diff > 0 ? "Ease rhythm" : "Increase rhythm";
+  String _computeAdaptivePrompt(double current) {
+    if (rhythmTarget == 0) return "Learning rhythm...";
+    if (current < rhythmTarget - 1) return "Increase rhythm";
+    if (current > rhythmTarget + 1) return "Ease rhythm";
+    return "Optimal rhythm";
   }
 
+  String get rhythmAdvice => rhythmTargetPrompt ?? "Tap ▶ to start workout";
   Color get rhythmColor {
     if (!recording) return Colors.grey;
     if (rhythmAdvice == "Optimal rhythm") return Colors.green;
@@ -201,6 +209,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
     await Permission.locationWhenInUse.request();
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
+    await Geolocator.requestPermission();
   }
 
   void _startGPS() {
@@ -212,7 +221,9 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
       ),
     ).listen((pos) {
       final opt = context.read<OptimiserState>();
-      if (_lastPosition != null) {
+      if (_lastPosition != null &&
+          pos.timestamp != null &&
+          _lastPosition?.timestamp != null) {
         final dt = pos.timestamp!
                 .difference(_lastPosition!.timestamp!)
                 .inMilliseconds /
