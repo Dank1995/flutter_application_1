@@ -57,8 +57,9 @@ class OptimiserState extends ChangeNotifier {
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
   final List<Map<String, dynamic>> recentEff = [];
 
-  int rhythmTargetBucket = 0;
-  String? rhythmTargetPrompt;
+  int rhythmTargetBucket = 0;      // historical best "bucket" (eff * 100)
+  String? rhythmTargetPrompt;      // best prompt over last 30 days
+  double? rhythmTargetEff;         // best average efficiency (km/h per bpm)
 
   // Smoothed velocity internals
   double _smoothVelocity = 0;
@@ -102,7 +103,7 @@ class OptimiserState extends ChangeNotifier {
 
   Future<void> loadTarget() async {
     if (_effBox.isNotEmpty) {
-      rhythmTargetBucket = _computeOptimalBucket();
+      rhythmTargetBucket = _computeOptimalBucket(); // also sets rhythmTargetEff
       rhythmTargetPrompt = _computeOptimalPrompt();
       notifyListeners();
     }
@@ -120,39 +121,50 @@ class OptimiserState extends ChangeNotifier {
     if (recentEff.length > 15) recentEff.removeAt(0);
 
     final rhythm = (efficiency * 100).round();
-    final currentPrompt = _computeAdaptivePrompt(rhythm.toDouble());
+
+    // New adaptive logic uses real efficiency, not bucket int
+    final currentPrompt = _computeAdaptivePrompt(efficiency);
 
     _effBox.add(EffSample(DateTime.now(), efficiency, rhythm, currentPrompt));
 
-    rhythmTargetBucket = _computeOptimalBucket();
+    rhythmTargetBucket = _computeOptimalBucket(); // refresh best bucket & eff
     rhythmTargetPrompt = _computeOptimalPrompt();
     notifyListeners();
   }
 
+  /// Find the rhythm bucket (eff*100 integer) with highest average efficiency
+  /// over the last 30 days, and record its average efficiency as target.
   int _computeOptimalBucket() {
     final now = DateTime.now();
     final samples = _effBox.values
         .where((e) => e.time.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
-    if (samples.isEmpty) return 0;
+    if (samples.isEmpty) {
+      rhythmTargetEff = null;
+      return 0;
+    }
 
     final Map<int, List<double>> buckets = {};
     for (final s in samples) {
       buckets.putIfAbsent(s.rhythm, () => []).add(s.efficiency);
     }
 
-    int? best;
-    double bestEff = -1;
-    buckets.forEach((r, list) {
+    int? bestBucket;
+    double bestAvgEff = -1;
+
+    buckets.forEach((bucket, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
-      if (avg > bestEff) {
-        bestEff = avg;
-        best = r;
+      if (avg > bestAvgEff) {
+        bestAvgEff = avg;
+        bestBucket = bucket;
       }
     });
-    return best ?? 0;
+
+    rhythmTargetEff = bestAvgEff > 0 ? bestAvgEff : null;
+    return bestBucket ?? 0;
   }
 
+  /// Find the prompt text that historically produced the best avg efficiency.
   String? _computeOptimalPrompt() {
     final now = DateTime.now();
     final samples = _effBox.values
@@ -177,11 +189,35 @@ class OptimiserState extends ChangeNotifier {
     return bestPrompt;
   }
 
-  String _computeAdaptivePrompt(double current) {
-    if (rhythmTargetBucket == 0) return "Learning rhythm...";
-    if (current < rhythmTargetBucket - 1) return "Increase rhythm";
-    if (current > rhythmTargetBucket + 1) return "Ease rhythm";
-    return "Optimal rhythm";
+  /// New wide-band adaptive prompt:
+  /// - Uses actual efficiency (km/h per bpm)
+  /// - Compares to rhythmTargetEff
+  /// - Wide band ±5%: within this → "Optimal rhythm"
+  /// - Below target eff → "Increase rhythm"
+  /// - Above target eff → "Ease rhythm"
+  String _computeAdaptivePrompt(double currentEff) {
+    // No learned target yet
+    if (rhythmTargetEff == null || rhythmTargetEff! <= 0) {
+      return "Learning rhythm...";
+    }
+
+    final target = rhythmTargetEff!;
+    final relDiffPercent = ((currentEff - target) / target).abs() * 100.0;
+
+    const thresholdPercent = 5.0; // ±5% wide-band
+
+    if (relDiffPercent <= thresholdPercent) {
+      return "Optimal rhythm";
+    }
+
+    // Direction:
+    // - If current efficiency is BELOW target → you are less efficient → "Increase rhythm"
+    // - If current efficiency is ABOVE target → you're burning too much per bpm → "Ease rhythm"
+    if (currentEff < target) {
+      return "Increase rhythm";
+    } else {
+      return "Ease rhythm";
+    }
   }
 
   String get rhythmAdvice {
@@ -347,7 +383,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
                 .inMilliseconds /
             1000.0;
 
-        // Ignore weird or too-fast updates
+        // Ignore weird or too-fast / too-slow updates
         if (dt >= 0.5 && dt <= 5) {
           final dist = Geolocator.distanceBetween(
             _lastPosition!.latitude,
