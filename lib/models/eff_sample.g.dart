@@ -20,19 +20,22 @@ class EffSampleAdapter extends TypeAdapter<EffSample> {
       fields[0] as DateTime,
       fields[1] as double,
       fields[2] as int,
+      fields[3] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, EffSample obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(4)
       ..writeByte(0)
       ..write(obj.time)
       ..writeByte(1)
       ..write(obj.efficiency)
       ..writeByte(2)
-      ..write(obj.cadence);
+      ..write(obj.rhythm)
+      ..writeByte(3)
+      ..write(obj.prompt);
   }
 
   @override
