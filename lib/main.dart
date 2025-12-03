@@ -17,13 +17,15 @@ void main() async {
   final opt = OptimiserState();
   await opt.loadTarget();
 
-  runApp(MultiProvider(
-    providers: [
-      ChangeNotifierProvider(create: (_) => opt),
-      Provider(create: (_) => BleManager()),
-    ],
-    child: const MyApp(),
-  ));
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => opt),
+        ChangeNotifierProvider(create: (_) => BleManager()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -32,22 +34,28 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Physiological Optimiser',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        appBarTheme: const AppBarTheme(centerTitle: true),
+      ),
       home: const OptimiserDashboard(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
+// ----------------------------- STATE -----------------------------
+
 class OptimiserState extends ChangeNotifier {
   double hr = 0;
-  double velocity = 0;
-  double efficiency = 0;
+  double velocity = 0; // km/h
+  double efficiency = 0; // km/h per bpm
   bool recording = false;
 
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
   final List<Map<String, dynamic>> recentEff = [];
 
-  int rhythmTarget = 0;
+  int rhythmTargetBucket = 0;
   String? rhythmTargetPrompt;
 
   void toggleRecording() {
@@ -56,18 +64,23 @@ class OptimiserState extends ChangeNotifier {
   }
 
   void setHr(double bpm) {
+    if (bpm <= 0 || bpm.isNaN) return;
     hr = bpm;
     _updateEfficiency();
   }
 
   void setVelocity(double mps) {
-    velocity = mps * 3.6; // convert to km/h
+    // Convert to km/h, clamp obvious GPS spikes to 0 (stationary)
+    double v = (mps * 3.6);
+    if (v.isNaN || v.isInfinite) return;
+    if (v < 0 || v > 36) v = 0; // >10 m/s (36 km/h) is unlikely for running
+    velocity = v;
     _updateEfficiency();
   }
 
   Future<void> loadTarget() async {
     if (_effBox.isNotEmpty) {
-      rhythmTarget = _computeOptimalRhythm();
+      rhythmTargetBucket = _computeOptimalBucket();
       rhythmTargetPrompt = _computeOptimalPrompt();
       notifyListeners();
     }
@@ -85,26 +98,26 @@ class OptimiserState extends ChangeNotifier {
 
     _effBox.add(EffSample(DateTime.now(), efficiency, rhythm, currentPrompt));
 
-    rhythmTarget = _computeOptimalRhythm();
+    rhythmTargetBucket = _computeOptimalBucket();
     rhythmTargetPrompt = _computeOptimalPrompt();
     notifyListeners();
   }
 
-  int _computeOptimalRhythm() {
+  int _computeOptimalBucket() {
     final now = DateTime.now();
     final samples = _effBox.values
         .where((e) => e.time.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
     if (samples.isEmpty) return 0;
 
-    final Map<int, List<double>> rhythms = {};
+    final Map<int, List<double>> buckets = {};
     for (final s in samples) {
-      rhythms.putIfAbsent(s.rhythm, () => []).add(s.efficiency);
+      buckets.putIfAbsent(s.rhythm, () => []).add(s.efficiency);
     }
 
     int? best;
     double bestEff = -1;
-    rhythms.forEach((r, list) {
+    buckets.forEach((r, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
         bestEff = avg;
@@ -139,13 +152,17 @@ class OptimiserState extends ChangeNotifier {
   }
 
   String _computeAdaptivePrompt(double current) {
-    if (rhythmTarget == 0) return "Learning rhythm...";
-    if (current < rhythmTarget - 1) return "Increase rhythm";
-    if (current > rhythmTarget + 1) return "Ease rhythm";
+    if (rhythmTargetBucket == 0) return "Learning rhythm...";
+    if (current < rhythmTargetBucket - 1) return "Increase rhythm";
+    if (current > rhythmTargetBucket + 1) return "Ease rhythm";
     return "Optimal rhythm";
   }
 
-  String get rhythmAdvice => rhythmTargetPrompt ?? "Tap ▶ to start workout";
+  String get rhythmAdvice {
+    if (!recording) return "Tap ▶ to start workout";
+    return rhythmTargetPrompt ?? "Learning rhythm...";
+  }
+
   Color get rhythmColor {
     if (!recording) return Colors.grey;
     if (rhythmAdvice == "Optimal rhythm") return Colors.green;
@@ -159,34 +176,96 @@ class OptimiserState extends ChangeNotifier {
   }
 }
 
-class BleManager {
+// ----------------------------- BLE -----------------------------
+
+class BleManager extends ChangeNotifier {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
   final Uuid hrService = Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
   final Uuid hrMeasurement = Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
-  Future<void> connect(String id, OptimiserState opt) async {
-    _ble.connectToDevice(id: id).listen((event) {
+  StreamSubscription<DiscoveredDevice>? _scanSub;
+  StreamSubscription<ConnectionStateUpdate>? _connSub;
+  StreamSubscription<List<int>>? _hrSub;
+
+  String? connectedId;
+  String? connectedName;
+  bool scanning = false;
+
+  Future<void> ensurePermissions() async {
+    await Permission.locationWhenInUse.request();
+    await Permission.bluetoothScan.request();
+    await Permission.bluetoothConnect.request();
+  }
+
+  Future<List<DiscoveredDevice>> scanDevices({Duration timeout = const Duration(seconds: 5)}) async {
+    await ensurePermissions();
+    final List<DiscoveredDevice> devices = [];
+    _scanSub?.cancel();
+    scanning = true;
+    notifyListeners();
+
+    final completer = Completer<List<DiscoveredDevice>>();
+    _scanSub = _ble.scanForDevices(withServices: []).listen((device) {
+      if (!devices.any((d) => d.id == device.id)) {
+        devices.add(device);
+        notifyListeners();
+      }
+    }, onError: (_) {
+      if (!completer.isCompleted) completer.complete(devices);
+    });
+
+    Future.delayed(timeout, () async {
+      await _scanSub?.cancel();
+      scanning = false;
+      notifyListeners();
+      if (!completer.isCompleted) completer.complete(devices);
+    });
+
+    return completer.future;
+  }
+
+  Future<void> connect(String id, String name, OptimiserState opt) async {
+    _connSub?.cancel();
+    _hrSub?.cancel();
+
+    _connSub = _ble.connectToDevice(id: id).listen((event) {
       if (event.connectionState == DeviceConnectionState.connected) {
+        connectedId = id;
+        connectedName = name.isEmpty ? "(unknown)" : name;
+        notifyListeners();
+
         final hrChar = QualifiedCharacteristic(
           deviceId: id,
           serviceId: hrService,
           characteristicId: hrMeasurement,
         );
-        _ble.subscribeToCharacteristic(hrChar).listen((data) {
+
+        _hrSub = _ble.subscribeToCharacteristic(hrChar).listen((data) {
+          // Basic HR parsing: 2nd byte is bpm when 8-bit format
           if (data.length > 1) opt.setHr(data[1].toDouble());
-        });
+        }, onError: (_) {});
+      } else if (event.connectionState == DeviceConnectionState.disconnected) {
+        connectedId = null;
+        connectedName = null;
+        notifyListeners();
       }
+    }, onError: (_) {
+      connectedId = null;
+      connectedName = null;
+      notifyListeners();
     });
   }
 
-  Stream<List<DiscoveredDevice>> scan() {
-    final devices = <DiscoveredDevice>[];
-    return _ble.scanForDevices(withServices: []).map((d) {
-      if (!devices.any((x) => x.id == d.id)) devices.add(d);
-      return devices;
-    });
+  Future<void> disconnect() async {
+    await _hrSub?.cancel();
+    await _connSub?.cancel();
+    connectedId = null;
+    connectedName = null;
+    notifyListeners();
   }
 }
+
+// ----------------------------- UI -----------------------------
 
 class OptimiserDashboard extends StatefulWidget {
   const OptimiserDashboard({super.key});
@@ -206,10 +285,10 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
   }
 
   Future<void> _initPermissions() async {
+    await Geolocator.requestPermission();
     await Permission.locationWhenInUse.request();
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
-    await Geolocator.requestPermission();
   }
 
   void _startGPS() {
@@ -230,29 +309,73 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             1000;
         if (dt > 0) {
           final dist = Geolocator.distanceBetween(
-              _lastPosition!.latitude,
-              _lastPosition!.longitude,
-              pos.latitude,
-              pos.longitude);
-          opt.setVelocity(dist / dt);
+            _lastPosition!.latitude,
+            _lastPosition!.longitude,
+            pos.latitude,
+            pos.longitude,
+          );
+          double v = dist / dt; // m/s
+          if (v > 10) v = 0; // filter spikes
+          opt.setVelocity(v);
         }
       }
       _lastPosition = pos;
     });
   }
 
+  Future<void> _showBleSheet() async {
+    final ble = context.read<BleManager>();
+    final opt = context.read<OptimiserState>();
+
+    // Always show the button; sheet lists devices (or shows "Scanning...")
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return ChangeNotifierProvider.value(
+          value: ble,
+          child: const _BleBottomSheet(),
+        );
+      },
+    );
+
+    // kick off scan after the sheet is opened
+    await ble.scanDevices();
+
+    // When user taps a device in the sheet, connection happens there.
+    // Nothing else needed here.
+  }
+
   @override
   Widget build(BuildContext context) {
     final opt = context.watch<OptimiserState>();
+    final ble = context.watch<BleManager>();
+
     return Scaffold(
       appBar: AppBar(
+        // ***** TOP-LEFT BLUETOOTH BUTTON *****
+        leading: IconButton(
+          icon: Icon(
+            ble.connectedId == null
+                ? Icons.bluetooth
+                : Icons.bluetooth_connected,
+          ),
+          tooltip: ble.connectedName == null
+              ? 'Bluetooth devices'
+              : 'Connected: ${ble.connectedName}',
+          onPressed: _showBleSheet, // always opens device list
+        ),
         title: const Text("Physiological Optimiser"),
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
+            tooltip: '30-day history',
             onPressed: () {
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const EfficiencyHistory()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const EfficiencyHistory()),
+              );
             },
           ),
         ],
@@ -260,17 +383,27 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(opt.rhythmAdvice,
-              style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: opt.rhythmColor)),
+          Text(
+            opt.rhythmAdvice,
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: opt.rhythmColor,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 10),
           Text("HR: ${opt.hr.toStringAsFixed(0)} bpm"),
           Text("Velocity: ${opt.velocity.toStringAsFixed(2)} km/h"),
           Text("Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
           const SizedBox(height: 20),
           SizedBox(height: 200, child: EfficiencyGraph(opt: opt)),
+          const SizedBox(height: 12),
+          if (ble.connectedName != null)
+            Text(
+              "Connected to: ${ble.connectedName}",
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -285,6 +418,99 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
   void dispose() {
     _posSub?.cancel();
     super.dispose();
+  }
+}
+
+class _BleBottomSheet extends StatelessWidget {
+  const _BleBottomSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleManager>();
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.bluetooth),
+                const SizedBox(width: 8),
+                Text(
+                  ble.scanning
+                      ? "Scanning for devices…"
+                      : "Bluetooth devices",
+                  style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                if (ble.connectedId != null)
+                  IconButton(
+                    tooltip: 'Disconnect',
+                    icon: const Icon(Icons.link_off),
+                    onPressed: () => ble.disconnect(),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: FutureBuilder<List<DiscoveredDevice>>(
+                future: ble.scanDevices(),
+                builder: (ctx, snap) {
+                  final devices = snap.data ?? const <DiscoveredDevice>[];
+                  if (devices.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        "No devices found yet.\n"
+                        "Make sure your HR strap is on and in pairing mode.",
+                        textAlign: TextAlign.center,
+                      ),
+                    );
+                  }
+                  return ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (ctx, i) {
+                      final d = devices[i];
+                      final name = d.name.isNotEmpty ? d.name : "(unknown)";
+                      return ListTile(
+                        leading: const Icon(Icons.watch),
+                        title: Text(name),
+                        subtitle: Text(d.id),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final opt = context.read<OptimiserState>();
+                          await ble.connect(d.id, name, opt);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => ble.scanDevices(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Rescan"),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Close"),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -347,7 +573,7 @@ class EfficiencyHistory extends StatelessWidget {
                 isCurved: true,
                 color: Colors.orange,
                 belowBarData: BarAreaData(
-                    show: true, color: Colors.orange.withOpacity(0.2)),
+                  show: true, color: Colors.orange.withOpacity(0.2)),
               ),
             ],
           ),
