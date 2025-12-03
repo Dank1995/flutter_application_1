@@ -1,6 +1,6 @@
 name: physiological_optimiser
 description: Physiological Optimiser workout app with Bluetooth HR and GPS velocity optimisation
-version: 1.0.0+38
+version: 1.0.0+40
 
 environment:
   sdk: ">=2.18.0 <3.0.0"
