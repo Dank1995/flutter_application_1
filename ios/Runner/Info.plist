@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 
@@ -19,7 +20,7 @@
     <string>1.0.0</string>
 
     <key>CFBundleVersion</key>
-    <string>37</string>
+    <string>38</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -27,7 +28,9 @@
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- All orientations required for iPad multitasking -->
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -36,26 +39,16 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- ✅ Required location permission strings -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app uses GPS to measure your movement speed and calculate real-time training efficiency.</string>
-
+    <string>This app uses GPS to measure velocity and calculate training efficiency.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Location data is needed to continuously track your velocity and optimise your cadence and performance during workouts.</string>
-
-    <!-- Bluetooth (HR strap) permission -->
+    <string>Needed for accurate velocity and route tracking during workouts.</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to your Bluetooth heart-rate strap for real-time physiological data.</string>
+    <string>Used to read heart rate from Bluetooth chest straps.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Used to connect to Bluetooth heart rate sensors.</string>
 
-    <!-- HealthKit (if later re-added) -->
-    <key>NSHealthShareUsageDescription</key>
-    <string>This app reads heart rate data from your sensors to optimise your workout efficiency.</string>
-    <key>NSHealthUpdateUsageDescription</key>
-    <string>This app writes your performance efficiency data into Apple Health.</string>
-
-    <!-- No encryption -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
-
 </dict>
 </plist>
