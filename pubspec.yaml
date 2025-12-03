@@ -1,6 +1,6 @@
 name: physiological_optimiser
-description: Physiological Optimiser using GPS velocity + Bluetooth HR + optimiser + history
-version: 1.0.0+37
+description: Physiological Optimiser workout app with Bluetooth HR and GPS velocity optimisation
+version: 1.0.0+38
 
 environment:
   sdk: ">=2.18.0 <3.0.0"
@@ -8,21 +8,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   provider: ^6.1.5
   fl_chart: ^0.69.0
-
-  # HR only via BLE chest straps
-  flutter_reactive_ble: ^5.0.2
-  permission_handler: ^11.4.0
-
-  # Local data storage
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   path_provider: ^2.0.15
-
-  # GPS velocity
   geolocator: ^10.1.1
+  flutter_reactive_ble: ^5.0.2
+  permission_handler: ^11.4.0
 
 dev_dependencies:
   flutter_test:
