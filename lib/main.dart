@@ -71,7 +71,7 @@ class OptimiserState extends ChangeNotifier {
   double? _hrBeforeTest;
   double? _velBeforeTest;
 
-  // Plateau state (top of gradient)
+  // Plateau state
   bool _plateau = false;
   double? _plateauHr;
   double? _plateauVel;
@@ -138,19 +138,16 @@ class OptimiserState extends ChangeNotifier {
     _updateEfficiency();
   }
 
-  /// mps = metres per second from GPS
   void setVelocity(double mps) {
-    double v = mps * 3.6; // convert to km/h
+    double v = mps * 3.6;
 
     if (v.isNaN || v.isInfinite || v < 0) return;
 
-    // Hard cap: ignore insane spikes (>25 km/h running)
     if (v > 25) {
-      _updateEfficiency(); // keep previous smoothed velocity
+      _updateEfficiency();
       return;
     }
 
-    // Exponential moving average smoothing
     if (_smoothVelocity == 0) {
       _smoothVelocity = v;
     } else {
@@ -166,7 +163,6 @@ class OptimiserState extends ChangeNotifier {
 
     efficiency = velocity / hr;
 
-    // Track recent samples for live graph only
     recentEff.add({
       "eff": efficiency,
       "vel": velocity,
@@ -186,7 +182,6 @@ class OptimiserState extends ChangeNotifier {
     const int testIntervalSec = 15;
     const int evalDelaySec = 15;
 
-    // If a test is in progress, see if it's time to evaluate
     if (_testInProgress) {
       if (_testStartTime != null &&
           now.difference(_testStartTime!).inSeconds >= evalDelaySec) {
@@ -195,50 +190,38 @@ class OptimiserState extends ChangeNotifier {
       return;
     }
 
-    // No test in progress: see if it's time to start a new one
     if (_lastTestTime != null &&
         now.difference(_lastTestTime!).inSeconds < testIntervalSec) {
-      return; // wait until interval elapsed
+      return;
     }
 
-    // If on plateau, only re-test if conditions changed enough
     if (_plateau && _plateauHr != null && _plateauVel != null) {
       final hrDiff = (hr - _plateauHr!).abs();
       final velDiff = (velocity - _plateauVel!).abs();
       if (hrDiff < 3.0 && velDiff < 1.0) {
-        // Still in same state – stay in optimal plateau, no buzz
         _currentAdvice = "Optimal rhythm";
         return;
       } else {
-        // Conditions changed (hill, pace, fatigue) – re-explore
         _plateau = false;
       }
     }
 
-    // Decide direction to test: up or down
     String dir;
-    const double deltaEps = 0.0003; // tiny efficiency difference
+    const double deltaEps = 0.0003;
 
     if (_upCount + _downCount < 2) {
-      // Early phase – alternate to explore both directions
       if (_testDirection == "up") {
         dir = "down";
       } else {
         dir = "up";
       }
     } else {
-      // Use whichever direction tends to improve efficiency
       if (_avgUpDelta > _avgDownDelta + deltaEps) {
         dir = "up";
       } else if (_avgDownDelta > _avgUpDelta + deltaEps) {
         dir = "down";
       } else {
-        // Both similar – alternate
-        if (_testDirection == "up") {
-          dir = "down";
-        } else {
-          dir = "up";
-        }
+        dir = (_testDirection == "up") ? "down" : "up";
       }
     }
 
@@ -257,10 +240,10 @@ class OptimiserState extends ChangeNotifier {
 
     if (dir == "up") {
       _currentAdvice = "Increase rhythm";
-      _vibrateUp(); // 2 buzzes
+      _vibrateUp();
     } else {
       _currentAdvice = "Ease rhythm";
-      _vibrateDown(); // 1 buzz
+      _vibrateDown();
     }
 
     notifyListeners();
@@ -269,9 +252,7 @@ class OptimiserState extends ChangeNotifier {
   void _evaluateTest() {
     _testInProgress = false;
 
-    if (_effBeforeTest == null || _hrBeforeTest == null) {
-      return;
-    }
+    if (_effBeforeTest == null || _hrBeforeTest == null) return;
 
     final effAfter = efficiency;
     final hrAfter = hr;
@@ -279,9 +260,8 @@ class OptimiserState extends ChangeNotifier {
     final hrDelta = hrAfter - _hrBeforeTest!;
 
     const double effEps = 0.0003;
-    const double plateauHrEps = 1.0; // ~1 bpm as you requested
+    const double plateauHrEps = 1.0;
 
-    // Plateau detection: change in HR and efficiency both tiny
     if (effDelta.abs() < effEps && hrDelta.abs() < plateauHrEps) {
       _plateau = true;
       _plateauHr = hrAfter;
@@ -291,32 +271,39 @@ class OptimiserState extends ChangeNotifier {
       return;
     }
 
-    // Not plateau – update stats for chosen direction
     if (_testDirection == "up") {
       _upCount++;
-      _avgUpDelta =
-          ((_avgUpDelta * (_upCount - 1)) + effDelta) / _upCount;
+      _avgUpDelta = ((_avgUpDelta * (_upCount - 1)) + effDelta) / _upCount;
     } else if (_testDirection == "down") {
       _downCount++;
       _avgDownDelta =
           ((_avgDownDelta * (_downCount - 1)) + effDelta) / _downCount;
     }
 
-    // Advice stays as last prompt; plateau state will suppress future tests
     notifyListeners();
   }
 
-  void _vibrateUp() {
-    // 2 short buzzes
-    Vibration.vibrate(pattern: [0, 120, 100, 120]);
-  }
+  // ============================================================
+  // FIXED HAPTICS — Now works correctly on iOS + Android
+  // ============================================================
 
-  void _vibrateDown() {
-    // 1 short buzz
+  void _vibrateUp() async {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (!hasVibrator) return;
+
+    Vibration.vibrate(duration: 120);
+    await Future.delayed(const Duration(milliseconds: 160));
     Vibration.vibrate(duration: 120);
   }
 
-  // ---------- Public getters for UI ----------
+  void _vibrateDown() async {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (!hasVibrator) return;
+
+    Vibration.vibrate(duration: 120);
+  }
+
+  // ---------- Public getters ----------
 
   String get rhythmAdvice {
     if (!recording) return "Tap ▶ to start workout";
@@ -332,7 +319,7 @@ class OptimiserState extends ChangeNotifier {
 }
 
 // ============================================================
-// BLE MANAGER
+// BLE MANAGER (unchanged)
 // ============================================================
 
 class BleManager extends ChangeNotifier {
@@ -403,7 +390,6 @@ class BleManager extends ChangeNotifier {
 
         _hrSub =
             _ble.subscribeToCharacteristic(hrChar).listen((data) {
-          // Basic HR parsing: 2nd byte is bpm when 8-bit format
           if (data.length > 1) opt.setHr(data[1].toDouble());
         });
       } else if (event.connectionState ==
@@ -429,7 +415,7 @@ class BleManager extends ChangeNotifier {
 }
 
 // ============================================================
-// DASHBOARD UI
+// DASHBOARD UI (unchanged)
 // ============================================================
 
 class OptimiserDashboard extends StatefulWidget {
@@ -475,7 +461,6 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
                 .inMilliseconds /
             1000.0;
 
-        // Ignore weird or too-fast / too-slow updates
         if (dt >= 0.5 && dt <= 5) {
           final dist = Geolocator.distanceBetween(
             _lastPosition!.latitude,
@@ -484,9 +469,8 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             pos.longitude,
           );
 
-          // Ignore big jumps (GPS glitches), e.g. >20m in one step
           if (dist <= 20) {
-            final v = dist / dt; // m/s
+            final v = dist / dt;
             opt.setVelocity(v);
           }
         }
@@ -577,7 +561,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
 }
 
 // ============================================================
-// BLE BOTTOM SHEET
+// BLE SHEET (unchanged)
 // ============================================================
 
 class _BleBottomSheet extends StatefulWidget {
@@ -691,7 +675,7 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
 }
 
 // ============================================================
-// LIVE EFFICIENCY GRAPH (RECENT ONLY)
+// LIVE EFFICIENCY GRAPH
 // ============================================================
 
 class EfficiencyGraph extends StatelessWidget {
