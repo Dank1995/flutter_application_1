@@ -44,42 +44,19 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ============================================================
-// OPTIMISER STATE 2.0 (with reinforcement learning)
-// ============================================================
+// ----------------------------- STATE -----------------------------
 
 class OptimiserState extends ChangeNotifier {
-  // ---------- Core state ----------
   double hr = 0;
-  double velocity = 0; // km/h (smoothed)
+  double velocity = 0; // km/h
   double efficiency = 0; // km/h per bpm
   bool recording = false;
 
   final Box<EffSample> _effBox = Hive.box<EffSample>('efficiencyBox');
   final List<Map<String, dynamic>> recentEff = [];
 
-  // Long-term target (over last 30 days)
-  int rhythmTargetBucket = 0;   // eff*100 bucket with best avg efficiency
-  double? rhythmTargetEff;      // actual best avg efficiency
-  String? rhythmTargetPrompt;   // historically best-performing prompt (optional)
-
-  // Current real-time prompt shown to athlete
-  String _currentPrompt = "Learning rhythm...";
-
-  // Smoothed velocity internals
-  double _smoothVelocity = 0;
-  static const double _alpha = 0.15; // smoothing factor for velocity
-
-  // ---------- Reinforcement learning memory ----------
-  // Each entry: {prompt, hr, velocity, effBefore, effAfter, delta, time}
-  final List<Map<String, dynamic>> reinforcementMemory = [];
-
-  // Active prompt event being evaluated
-  String? _activePrompt;
-  DateTime? _activePromptTime;
-  double? _activePromptEff;
-  double? _activePromptVel;
-  double? _activePromptHr;
+  int rhythmTargetBucket = 0;
+  String? rhythmTargetPrompt;
 
   void toggleRecording() {
     recording = !recording;
@@ -92,32 +69,18 @@ class OptimiserState extends ChangeNotifier {
     _updateEfficiency();
   }
 
-  /// mps = metres per second from GPS
   void setVelocity(double mps) {
-    double v = mps * 3.6; // convert to km/h
-
-    if (v.isNaN || v.isInfinite || v < 0) return;
-
-    // Hard cap: ignore insane spikes (>25 km/h running)
-    if (v > 25) {
-      _updateEfficiency(); // keep previous smoothed velocity
-      return;
-    }
-
-    // Exponential moving average smoothing
-    if (_smoothVelocity == 0) {
-      _smoothVelocity = v;
-    } else {
-      _smoothVelocity = (_alpha * v) + ((1 - _alpha) * _smoothVelocity);
-    }
-
-    velocity = _smoothVelocity;
+    // Convert to km/h, clamp obvious GPS spikes to 0 (stationary)
+    double v = (mps * 3.6);
+    if (v.isNaN || v.isInfinite) return;
+    if (v < 0 || v > 36) v = 0; // >10 m/s (36 km/h) is unlikely for running
+    velocity = v;
     _updateEfficiency();
   }
 
   Future<void> loadTarget() async {
     if (_effBox.isNotEmpty) {
-      rhythmTargetBucket = _computeOptimalBucket(); // sets rhythmTargetEff
+      rhythmTargetBucket = _computeOptimalBucket();
       rhythmTargetPrompt = _computeOptimalPrompt();
       notifyListeners();
     }
@@ -126,70 +89,42 @@ class OptimiserState extends ChangeNotifier {
   void _updateEfficiency() {
     if (!recording || hr <= 0 || velocity <= 0) return;
 
-    // Compute current efficiency
     efficiency = velocity / hr;
-
-    // First: evaluate effect of any previous prompt (20–40s window)
-    _evaluateActivePrompt();
-
-    // Track recent samples for graph
-    recentEff.add({
-      "eff": efficiency,
-      "vel": velocity,
-      "time": DateTime.now(),
-    });
+    recentEff.add({"eff": efficiency, "vel": velocity, "time": DateTime.now()});
     if (recentEff.length > 15) recentEff.removeAt(0);
 
-    // Compute real-time adaptive prompt (also sets _currentPrompt & active prompt)
     final rhythm = (efficiency * 100).round();
-    final promptNow = _computeAdaptivePrompt(efficiency);
+    final currentPrompt = _computeAdaptivePrompt(rhythm.toDouble());
 
-    // Persist this sample
-    _effBox.add(EffSample(
-      DateTime.now(),
-      efficiency,
-      rhythm,
-      promptNow,
-    ));
+    _effBox.add(EffSample(DateTime.now(), efficiency, rhythm, currentPrompt));
 
-    // Refresh long-term targets from last 30 days
     rhythmTargetBucket = _computeOptimalBucket();
     rhythmTargetPrompt = _computeOptimalPrompt();
-
     notifyListeners();
   }
-
-  // ---------- Long-term target calculation (30-day window) ----------
 
   int _computeOptimalBucket() {
     final now = DateTime.now();
     final samples = _effBox.values
         .where((e) => e.time.isAfter(now.subtract(const Duration(days: 30))))
         .toList();
-
-    if (samples.isEmpty) {
-      rhythmTargetEff = null;
-      return 0;
-    }
+    if (samples.isEmpty) return 0;
 
     final Map<int, List<double>> buckets = {};
     for (final s in samples) {
       buckets.putIfAbsent(s.rhythm, () => []).add(s.efficiency);
     }
 
-    int? bestBucket;
-    double bestAvgEff = -1;
-
-    buckets.forEach((bucket, list) {
+    int? best;
+    double bestEff = -1;
+    buckets.forEach((r, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
-      if (avg > bestAvgEff) {
-        bestAvgEff = avg;
-        bestBucket = bucket;
+      if (avg > bestEff) {
+        bestEff = avg;
+        best = r;
       }
     });
-
-    rhythmTargetEff = bestAvgEff > 0 ? bestAvgEff : null;
-    return bestBucket ?? 0;
+    return best ?? 0;
   }
 
   String? _computeOptimalPrompt() {
@@ -206,7 +141,6 @@ class OptimiserState extends ChangeNotifier {
 
     String? bestPrompt;
     double bestEff = -1;
-
     prompts.forEach((p, list) {
       final avg = list.reduce((a, b) => a + b) / list.length;
       if (avg > bestEff) {
@@ -214,183 +148,40 @@ class OptimiserState extends ChangeNotifier {
         bestPrompt = p;
       }
     });
-
     return bestPrompt;
   }
 
-  // ---------- Reinforcement evaluation (did the last prompt work?) ----------
-
-  void _evaluateActivePrompt() {
-    if (_activePromptTime == null ||
-        _activePromptEff == null ||
-        _activePromptHr == null ||
-        _activePromptVel == null) return;
-
-    // We only care once, between 20–40 seconds after the prompt change
-    final dt = DateTime.now().difference(_activePromptTime!).inSeconds;
-
-    if (dt < 20) {
-      // Not yet time to evaluate
-      return;
-    }
-
-    if (dt > 40) {
-      // Window expired, drop this event without learning
-      _activePromptTime = null;
-      return;
-    }
-
-    // Evaluate efficiency change
-    final double effBefore = _activePromptEff!;
-    final double effAfter = efficiency;
-    final double delta = effAfter - effBefore;
-
-    // Optionally ignore "Learning rhythm..." prompts
-    if (_activePrompt == null || _activePrompt == "Learning rhythm...") {
-      _activePromptTime = null;
-      return;
-    }
-
-    reinforcementMemory.add({
-      "prompt": _activePrompt,
-      "hr": _activePromptHr!,
-      "velocity": _activePromptVel!,
-      "effBefore": effBefore,
-      "effAfter": effAfter,
-      "delta": delta,
-      "time": DateTime.now(),
-    });
-
-    // Keep memory bounded
-    if (reinforcementMemory.length > 500) {
-      reinforcementMemory.removeAt(0);
-    }
-
-    // Clear so we don't evaluate again
-    _activePromptTime = null;
+  String _computeAdaptivePrompt(double current) {
+    if (rhythmTargetBucket == 0) return "Learning rhythm...";
+    if (current < rhythmTargetBucket - 1) return "Increase rhythm";
+    if (current > rhythmTargetBucket + 1) return "Ease rhythm";
+    return "Optimal rhythm";
   }
-
-  double _avgDeltaForPrompt(
-      List<Map<String, dynamic>> list, String prompt) {
-    final filtered = list.where((e) => e["prompt"] == prompt).toList();
-    if (filtered.isEmpty) return 0.0;
-    final sum = filtered
-        .map((e) => e["delta"] as double)
-        .fold(0.0, (a, b) => a + b);
-    return sum / filtered.length;
-  }
-
-  // ---------- Adaptive prompt (efficiency + reinforcement) ----------
-
-  String _computeAdaptivePrompt(double currentEff) {
-    // If we don't have a learned target yet, we're in calibration mode
-    if (rhythmTargetEff == null || rhythmTargetEff! <= 0) {
-      _setActivePrompt("Learning rhythm...", currentEff);
-      return _currentPrompt;
-    }
-
-    final target = rhythmTargetEff!;
-    final relDiffPercent =
-        ((currentEff - target) / target).abs() * 100.0;
-
-    const bandPercent = 5.0; // ±5% wide band for "Optimal"
-
-    // 1) Base prompt purely from efficiency vs target
-    String basePrompt;
-    if (relDiffPercent <= bandPercent) {
-      basePrompt = "Optimal rhythm";
-    } else if (currentEff < target) {
-      basePrompt = "Increase rhythm"; // less efficient than best → try increase
-    } else {
-      basePrompt = "Ease rhythm"; // above best-eff zone → likely overstraining
-    }
-
-    // 2) See if we have reinforcement data for similar conditions
-    final similar = reinforcementMemory.where((m) {
-      final double phr = m["hr"] as double;
-      final double pvel = m["velocity"] as double;
-      return (phr - hr).abs() <= 5.0 &&
-             (pvel - velocity).abs() <= 1.5;
-    }).toList();
-
-    String finalPrompt = basePrompt;
-
-    if (similar.isNotEmpty) {
-      double bestScore = double.negativeInfinity;
-      String? bestPrompt;
-
-      for (final candidate in const [
-        "Increase rhythm",
-        "Ease rhythm",
-        "Optimal rhythm",
-      ]) {
-        final score = _avgDeltaForPrompt(similar, candidate);
-        if (score > bestScore) {
-          bestScore = score;
-          bestPrompt = candidate;
-        }
-      }
-
-      // Only trust reinforcement if it actually tends to improve efficiency
-      const double minUsefulDelta = 0.0005; // small eff improvement threshold
-
-      if (bestPrompt != null && bestScore > minUsefulDelta) {
-        finalPrompt = bestPrompt;
-      }
-    }
-
-    // 3) Record this as the current prompt and potential reinforcement event
-    _setActivePrompt(finalPrompt, currentEff);
-
-    return _currentPrompt;
-  }
-
-  void _setActivePrompt(String prompt, double currentEff) {
-    _currentPrompt = prompt;
-
-    // Only consider it a new "prompt event" if it changed
-    if (prompt != _activePrompt) {
-      _activePrompt = prompt;
-      _activePromptTime = DateTime.now();
-      _activePromptEff = currentEff;
-      _activePromptVel = velocity;
-      _activePromptHr = hr;
-    }
-  }
-
-  // ---------- Public getters for UI ----------
 
   String get rhythmAdvice {
     if (!recording) return "Tap ▶ to start workout";
-    return _currentPrompt;
+    return rhythmTargetPrompt ?? "Learning rhythm...";
   }
 
   Color get rhythmColor {
     if (!recording) return Colors.grey;
-    if (_currentPrompt == "Optimal rhythm") return Colors.green;
-    if (_currentPrompt == "Learning rhythm...") return Colors.grey;
+    if (rhythmAdvice == "Optimal rhythm") return Colors.green;
     return Colors.orange;
   }
 
   List<EffSample> get last30Days {
     final cutoff = DateTime.now().subtract(const Duration(days: 30));
-    return _effBox.values
-        .where((e) => e.time.isAfter(cutoff))
-        .toList()
+    return _effBox.values.where((e) => e.time.isAfter(cutoff)).toList()
       ..sort((a, b) => a.time.compareTo(b.time));
   }
 }
 
-// ============================================================
-// BLE MANAGER
-// ============================================================
+// ----------------------------- BLE -----------------------------
 
 class BleManager extends ChangeNotifier {
   final FlutterReactiveBle _ble = FlutterReactiveBle();
-  final Uuid hrService =
-      Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
-  final Uuid hrMeasurement =
-      Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
+  final Uuid hrService = Uuid.parse("0000180D-0000-1000-8000-00805F9B34FB");
+  final Uuid hrMeasurement = Uuid.parse("00002A37-0000-1000-8000-00805F9B34FB");
 
   StreamSubscription<DiscoveredDevice>? _scanSub;
   StreamSubscription<ConnectionStateUpdate>? _connSub;
@@ -406,8 +197,7 @@ class BleManager extends ChangeNotifier {
     await Permission.bluetoothConnect.request();
   }
 
-  Future<List<DiscoveredDevice>> scanDevices(
-      {Duration timeout = const Duration(seconds: 5)}) async {
+  Future<List<DiscoveredDevice>> scanDevices({Duration timeout = const Duration(seconds: 5)}) async {
     await ensurePermissions();
     final List<DiscoveredDevice> devices = [];
     _scanSub?.cancel();
@@ -415,7 +205,6 @@ class BleManager extends ChangeNotifier {
     notifyListeners();
 
     final completer = Completer<List<DiscoveredDevice>>();
-
     _scanSub = _ble.scanForDevices(withServices: []).listen((device) {
       if (!devices.any((d) => d.id == device.id)) {
         devices.add(device);
@@ -454,9 +243,8 @@ class BleManager extends ChangeNotifier {
         _hrSub = _ble.subscribeToCharacteristic(hrChar).listen((data) {
           // Basic HR parsing: 2nd byte is bpm when 8-bit format
           if (data.length > 1) opt.setHr(data[1].toDouble());
-        });
-      } else if (event.connectionState ==
-          DeviceConnectionState.disconnected) {
+        }, onError: (_) {});
+      } else if (event.connectionState == DeviceConnectionState.disconnected) {
         connectedId = null;
         connectedName = null;
         notifyListeners();
@@ -477,15 +265,12 @@ class BleManager extends ChangeNotifier {
   }
 }
 
-// ============================================================
-// DASHBOARD UI
-// ============================================================
+// ----------------------------- UI -----------------------------
 
 class OptimiserDashboard extends StatefulWidget {
   const OptimiserDashboard({super.key});
   @override
-  State<OptimiserDashboard> createState() =>
-      _OptimiserDashboardState();
+  State<OptimiserDashboard> createState() => _OptimiserDashboardState();
 }
 
 class _OptimiserDashboardState extends State<OptimiserDashboard> {
@@ -515,39 +300,35 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
       ),
     ).listen((pos) {
       final opt = context.read<OptimiserState>();
-
       if (_lastPosition != null &&
           pos.timestamp != null &&
-          _lastPosition!.timestamp != null) {
+          _lastPosition?.timestamp != null) {
         final dt = pos.timestamp!
                 .difference(_lastPosition!.timestamp!)
                 .inMilliseconds /
-            1000.0;
-
-        // Ignore weird or too-fast / too-slow updates
-        if (dt >= 0.5 && dt <= 5) {
+            1000;
+        if (dt > 0) {
           final dist = Geolocator.distanceBetween(
             _lastPosition!.latitude,
             _lastPosition!.longitude,
             pos.latitude,
             pos.longitude,
           );
-
-          // Ignore big jumps (GPS glitches), e.g. >20m in one step
-          if (dist <= 20) {
-            final v = dist / dt; // m/s
-            opt.setVelocity(v);
-          }
+          double v = dist / dt; // m/s
+          if (v > 10) v = 0; // filter spikes
+          opt.setVelocity(v);
         }
       }
-
       _lastPosition = pos;
     });
   }
 
   Future<void> _showBleSheet() async {
     final ble = context.read<BleManager>();
+    final opt = context.read<OptimiserState>();
 
+    // Always show the button; sheet lists devices (or shows "Scanning...")
+    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -558,6 +339,12 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
         );
       },
     );
+
+    // kick off scan after the sheet is opened
+    await ble.scanDevices();
+
+    // When user taps a device in the sheet, connection happens there.
+    // Nothing else needed here.
   }
 
   @override
@@ -567,6 +354,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
 
     return Scaffold(
       appBar: AppBar(
+        // ***** TOP-LEFT BLUETOOTH BUTTON *****
         leading: IconButton(
           icon: Icon(
             ble.connectedId == null
@@ -576,7 +364,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
           tooltip: ble.connectedName == null
               ? 'Bluetooth devices'
               : 'Connected: ${ble.connectedName}',
-          onPressed: _showBleSheet,
+          onPressed: _showBleSheet, // always opens device list
         ),
         title: const Text("Physiological Optimiser"),
         actions: [
@@ -586,8 +374,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const EfficiencyHistory()),
+                MaterialPageRoute(builder: (_) => const EfficiencyHistory()),
               );
             },
           ),
@@ -608,24 +395,20 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
           const SizedBox(height: 10),
           Text("HR: ${opt.hr.toStringAsFixed(0)} bpm"),
           Text("Velocity: ${opt.velocity.toStringAsFixed(2)} km/h"),
-          Text(
-              "Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
+          Text("Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
           const SizedBox(height: 20),
           SizedBox(height: 200, child: EfficiencyGraph(opt: opt)),
           const SizedBox(height: 12),
           if (ble.connectedName != null)
             Text(
               "Connected to: ${ble.connectedName}",
-              style: const TextStyle(
-                  fontSize: 12, color: Colors.black54),
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor:
-            opt.recording ? Colors.red : Colors.green,
-        child: Icon(
-            opt.recording ? Icons.stop : Icons.play_arrow),
+        backgroundColor: opt.recording ? Colors.red : Colors.green,
+        child: Icon(opt.recording ? Icons.stop : Icons.play_arrow),
         onPressed: () => opt.toggleRecording(),
       ),
     );
@@ -638,37 +421,12 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
   }
 }
 
-// ============================================================
-// BLE BOTTOM SHEET (NO DOUBLE SCANS)
-// ============================================================
-
-class _BleBottomSheet extends StatefulWidget {
+class _BleBottomSheet extends StatelessWidget {
   const _BleBottomSheet();
-
-  @override
-  State<_BleBottomSheet> createState() =>
-      _BleBottomSheetState();
-}
-
-class _BleBottomSheetState extends State<_BleBottomSheet> {
-  List<DiscoveredDevice> devices = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _startScan();
-  }
-
-  Future<void> _startScan() async {
-    final ble = context.read<BleManager>();
-    devices = await ble.scanDevices();
-    if (mounted) setState(() {});
-  }
 
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleManager>();
-
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -684,7 +442,7 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
                       ? "Scanning for devices…"
                       : "Bluetooth devices",
                   style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w600),
+                    fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 if (ble.connectedId != null)
@@ -695,49 +453,50 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
                   ),
               ],
             ),
-
-            const SizedBox(height: 12),
-
+            const SizedBox(height: 8),
             Flexible(
-              child: devices.isEmpty
-                  ? const Padding(
+              child: FutureBuilder<List<DiscoveredDevice>>(
+                future: ble.scanDevices(),
+                builder: (ctx, snap) {
+                  final devices = snap.data ?? const <DiscoveredDevice>[];
+                  if (devices.isEmpty) {
+                    return const Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
                         "No devices found yet.\n"
-                        "Ensure your HR strap is powered on.",
+                        "Make sure your HR strap is on and in pairing mode.",
                         textAlign: TextAlign.center,
                       ),
-                    )
-                  : ListView.separated(
-                      itemCount: devices.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1),
-                      itemBuilder: (ctx, i) {
-                        final d = devices[i];
-                        final name =
-                            d.name.isNotEmpty ? d.name : "(unknown)";
-                        return ListTile(
-                          leading: const Icon(Icons.watch),
-                          title: Text(name),
-                          subtitle: Text(d.id),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () async {
-                            final opt =
-                                context.read<OptimiserState>();
-                            await ble.connect(d.id, name, opt);
-                            if (ctx.mounted) Navigator.pop(ctx);
-                          },
-                        );
-                      },
-                    ),
+                    );
+                  }
+                  return ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (ctx, i) {
+                      final d = devices[i];
+                      final name = d.name.isNotEmpty ? d.name : "(unknown)";
+                      return ListTile(
+                        leading: const Icon(Icons.watch),
+                        title: Text(name),
+                        subtitle: Text(d.id),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () async {
+                          final opt = context.read<OptimiserState>();
+                          await ble.connect(d.id, name, opt);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-
             const SizedBox(height: 8),
-
             Row(
               children: [
                 TextButton.icon(
-                  onPressed: _startScan,
+                  onPressed: () => ble.scanDevices(),
                   icon: const Icon(Icons.refresh),
                   label: const Text("Rescan"),
                 ),
@@ -755,10 +514,6 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
   }
 }
 
-// ============================================================
-// GRAPHS + HISTORY
-// ============================================================
-
 class EfficiencyGraph extends StatelessWidget {
   final OptimiserState opt;
   const EfficiencyGraph({super.key, required this.opt});
@@ -768,25 +523,21 @@ class EfficiencyGraph extends StatelessWidget {
     final points = opt.recentEff
         .asMap()
         .entries
-        .map((e) =>
-            FlSpot(e.key.toDouble(), e.value["eff"]))
+        .map((e) => FlSpot(e.key.toDouble(), e.value["eff"]))
         .toList();
 
     return LineChart(
       LineChartData(
         minX: 0,
-        maxX:
-            points.isEmpty ? 1 : points.length.toDouble(),
+        maxX: points.isEmpty ? 1 : points.length.toDouble(),
         minY: 0,
         lineBarsData: [
           LineChartBarData(
             spots: points,
             isCurved: true,
             dotData: FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: Colors.blue.withOpacity(0.2),
-            ),
+            belowBarData:
+                BarAreaData(show: true, color: Colors.blue.withOpacity(0.2)),
           ),
         ],
       ),
@@ -804,20 +555,17 @@ class EfficiencyHistory extends StatelessWidget {
     final points = data
         .asMap()
         .entries
-        .map((e) =>
-            FlSpot(e.key.toDouble(), e.value.efficiency))
+        .map((e) => FlSpot(e.key.toDouble(), e.value.efficiency))
         .toList();
 
     return Scaffold(
-      appBar: AppBar(
-          title: const Text("30-Day Efficiency History")),
+      appBar: AppBar(title: const Text("30-Day Efficiency History")),
       body: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: LineChart(
           LineChartData(
             minX: 0,
-            maxX:
-                points.isEmpty ? 1 : points.length.toDouble(),
+            maxX: points.isEmpty ? 1 : points.length.toDouble(),
             minY: 0,
             lineBarsData: [
               LineChartBarData(
@@ -825,9 +573,7 @@ class EfficiencyHistory extends StatelessWidget {
                 isCurved: true,
                 color: Colors.orange,
                 belowBarData: BarAreaData(
-                  show: true,
-                  color: Colors.orange.withOpacity(0.2),
-                ),
+                  show: true, color: Colors.orange.withOpacity(0.2)),
               ),
             ],
           ),
@@ -836,3 +582,4 @@ class EfficiencyHistory extends StatelessWidget {
     );
   }
 }
+

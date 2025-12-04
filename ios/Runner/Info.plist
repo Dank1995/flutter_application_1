@@ -4,6 +4,7 @@
 <plist version="1.0">
 <dict>
 
+    <!-- App identity -->
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
 
@@ -20,17 +21,19 @@
     <string>1.0.0</string>
 
     <key>CFBundleVersion</key>
-    <string>52</string>
+    <string>53</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
+    <!-- Launch files -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
     <key>UIMainStoryboardFile</key>
     <string>Main</string>
 
+    <!-- Supported orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -39,16 +42,40 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
+    <!-- LOCATION PERMISSIONS -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app uses GPS to measure velocity and calculate training efficiency.</string>
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Needed for accurate velocity and route tracking during workouts.</string>
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Used to read heart rate from Bluetooth chest straps.</string>
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Used to connect to Bluetooth heart rate sensors.</string>
+    <string>This app uses GPS to measure velocity and calculate real-time training efficiency.</string>
 
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Needed for accurate speed and outdoor workout tracking.</string>
+
+
+    <!-- BLUETOOTH PERMISSIONS -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app connects to your Bluetooth heart rate strap for real-time physiological feedback.</string>
+
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Used to read heart rate data from Bluetooth devices during workouts.</string>
+
+
+    <!-- HAPTICS / VIBRATION -->
+    <key>NSHapticsUsageDescription</key>
+    <string>Used to provide haptic guidance cues during training sessions.</string>
+
+    <!-- Some reviewers prefer this wording as well -->
+    <key>NSVibrationUsageDescription</key>
+    <string>Haptic vibration is used to signal rhythm adjustments during workouts.</string>
+
+
+    <!-- BACKGROUND MODES (optional but recommended for HR straps) -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>bluetooth-central</string>
+    </array>
+
+    <!-- Encryption field required by App Store -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+
 </dict>
 </plist>
