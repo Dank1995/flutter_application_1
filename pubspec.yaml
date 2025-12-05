@@ -1,6 +1,6 @@
 name: physiological_optimiser
 description: Physiological Optimiser adaptive training app
-version: 1.0.0+67
+version: 1.0.0+68
 
 environment:
   sdk: ">=2.18.0 <3.0.0"

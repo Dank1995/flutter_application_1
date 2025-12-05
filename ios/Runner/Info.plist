@@ -20,35 +20,16 @@
 	<string>1.0.0</string>
 
 	<key>CFBundleVersion</key>
-	<string>67</string>
+	<string>68</string>
 
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 
-	<!-- Launch Screen -->
+	<!-- Launch Screen (Flutter attaches after this) -->
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 
-	<!-- REQUIRED FOR FLUTTER TO DISPLAY UI -->
-	<key>UIApplicationSceneManifest</key>
-	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
-		<key>UISceneConfigurations</key>
-		<dict>
-			<key>UIWindowSceneSessionRoleApplication</key>
-			<array>
-				<dict>
-					<key>UISceneConfigurationName</key>
-					<string>Default Configuration</string>
-					<key>UISceneDelegateClassName</key>
-					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
-					<key>UISceneStoryboardFile</key>
-					<string>LaunchScreen</string>
-				</dict>
-			</array>
-		</dict>
-	</dict>
+	<!-- ✨ DO NOT INCLUDE ANY SceneManifest — Flutter uses AppDelegate only -->
 
 	<!-- Supported Orientations -->
 	<key>UISupportedInterfaceOrientations</key>
@@ -73,14 +54,14 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Bluetooth is required to read heart rate data for adaptive training.</string>
 
-	<!-- Audio / Microphone (harmless but allowed) -->
+	<!-- Audio / Microphone -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Required to enable audio signals during training sessions.</string>
 
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Allows playback of short audio cues for training optimisation.</string>
 
-	<!-- Skips Export Compliance Review -->
+	<!-- Skip Export Compliance -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
