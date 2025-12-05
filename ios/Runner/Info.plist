@@ -9,10 +9,10 @@
     <string>PhysiologicalOptimiser</string>
 
     <key>CFBundleDisplayName</key>
-    <string>PhysiologicalOptimiser</string>
+    <string>Physiological Optimiser</string>
 
     <key>CFBundleIdentifier</key>
-    <string>com.example.physiologicaloptimiser</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 
     <key>CFBundleExecutable</key>
     <string>Runner</string>
@@ -21,44 +21,16 @@
     <string>1.0.0</string>
 
     <key>CFBundleVersion</key>
-    <string>60</string>
+    <string>61</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
-
-    <!-- BLE + Location Permissions -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
-
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Used to read heart rate data from Bluetooth devices.</string>
-
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location access is required for Bluetooth device discovery.</string>
-
-
-    <!-- Haptics permission (iOS 17+) -->
-    <key>NSHapticsUsageDescription</key>
-    <string>Haptics are used to give rhythm adjustment cues.</string>
-
-
-    <!-- Background modes: BLE + Text-to-speech audio -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>
-        <string>audio</string>
-    </array>
-
-
-    <!-- Launch storyboard -->
+    <!-- Launch Screen -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <key>UIMainStoryboardFile</key>
-    <string>Main</string>
-
-    <!-- Orientation support -->
+    <!-- Supported orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -66,6 +38,31 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+
+    <!-- Background modes -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>bluetooth-central</string>
+        <string>audio</string>
+    </array>
+
+    <!-- Bluetooth Permissions -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
+
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Bluetooth is required to read heart rate data for adaptive training.</string>
+
+    <!-- Audio Permissions -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Required for enabling audio cues during training.</string>
+
+    <key>NSAppleMusicUsageDescription</key>
+    <string>Allows playback of short training audio cues.</string>
+
+    <!-- Haptics Permission -->
+    <key>NSHapticsUsageDescription</key>
+    <string>Allows the app to provide haptic rhythm cues.</string>
 
     <!-- Encryption -->
     <key>ITSAppUsesNonExemptEncryption</key>
