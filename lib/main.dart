@@ -39,7 +39,7 @@ class MyApp extends StatelessWidget {
 }
 
 // ============================================================
-// HR-ONLY OPTIMISER — PURE GRADIENT ASCENT
+// HR-ONLY OPTIMISER — GRADIENT ASCENT WITH SENSITIVITY CONTROL
 // ============================================================
 
 class OptimiserState extends ChangeNotifier {
@@ -47,12 +47,20 @@ class OptimiserState extends ChangeNotifier {
   double hr = 0;
   bool recording = false;
 
-  // HR history for graph (last ~60 seconds)
+  // HR history for graph (last ~60 samples)
   final List<double> hrHistory = [];
 
   void _addHrToHistory(double bpm) {
     hrHistory.add(bpm);
     if (hrHistory.length > 60) hrHistory.removeAt(0);
+  }
+
+  // ---------- Sensitivity (user selectable 1–5 bpm) ----------
+  double sensitivity = 3.0; // default plateau threshold (bpm)
+
+  void setSensitivity(double value) {
+    sensitivity = value;
+    notifyListeners();
   }
 
   // ---------- Gradient loop ----------
@@ -69,7 +77,7 @@ class OptimiserState extends ChangeNotifier {
   bool _plateau = false;
   double? _plateauHr;
 
-  // Learning stats
+  // Learning stats (average HR deltas for up/down)
   double _avgUpDelta = 0.0;
   double _avgDownDelta = 0.0;
   int _upCount = 0;
@@ -137,7 +145,7 @@ class OptimiserState extends ChangeNotifier {
 
     final now = DateTime.now();
     const int testInterval = 15; // seconds between tests
-    const int evalDelay = 15;    // seconds to wait after cue
+    const int evalDelay = 15; // seconds to wait after cue
 
     // If currently testing, wait for evaluation window
     if (_testInProgress) {
@@ -154,10 +162,10 @@ class OptimiserState extends ChangeNotifier {
       return;
     }
 
-    // Plateau check — HR-only
+    // Plateau check — HR-only, using sensitivity
     if (_plateau && _plateauHr != null) {
       final hrDiff = (hr - _plateauHr!).abs();
-      if (hrDiff < 1.5) {
+      if (hrDiff < sensitivity) {
         _currentAdvice = "Optimal rhythm";
         notifyListeners();
         return;
@@ -168,21 +176,22 @@ class OptimiserState extends ChangeNotifier {
 
     // Decide direction
     String dir;
-    const double deltaEps = 0.2; // small HR delta threshold
+    const double deltaEps = 0.2; // small HR delta difference between averages
 
     if (_upCount + _downCount < 2) {
       // Early exploration: alternate up/down
       dir = (_testDirection == "up") ? "down" : "up";
     } else {
       // We have some stats
+      // Remember: lower HR (negative delta) is better
       if (_avgUpDelta < _avgDownDelta - deltaEps) {
-        // Increasing rhythm tends to LOWER HR (negative delta better)
+        // Increasing rhythm tends to lower HR
         dir = "up";
       } else if (_avgDownDelta < _avgUpDelta - deltaEps) {
-        // Decreasing rhythm tends to LOWER HR
+        // Decreasing rhythm tends to lower HR
         dir = "down";
       } else {
-        // Very similar → probe by flipping
+        // Very similar → probe by flipping direction
         dir = (_testDirection == "up") ? "down" : "up";
       }
     }
@@ -216,7 +225,7 @@ class OptimiserState extends ChangeNotifier {
 
     final hrAfter = hr;
     final delta = hrAfter - _hrBeforeTest!;
-    const double plateauEps = 1.0;
+    final double plateauEps = sensitivity;
 
     // Plateau check — minimal HR response
     if (delta.abs() < plateauEps) {
@@ -227,7 +236,7 @@ class OptimiserState extends ChangeNotifier {
       return;
     }
 
-    // Update stats
+    // Update stats (negative delta = improvement)
     if (_testDirection == "up") {
       _upCount++;
       _avgUpDelta = ((_avgUpDelta * (_upCount - 1)) + delta) / _upCount;
@@ -276,7 +285,7 @@ class OptimiserState extends ChangeNotifier {
 }
 
 // ============================================================
-// BLE MANAGER (unchanged from working version)
+// BLE MANAGER (HR STRAP CONNECTION)
 // ============================================================
 
 class BleManager extends ChangeNotifier {
@@ -295,7 +304,7 @@ class BleManager extends ChangeNotifier {
   bool scanning = false;
 
   Future<void> ensurePermissions() async {
-    await Permission.locationWhenInUse.request();
+    await Permission.locationWhenInUse.request(); // needed for BLE scan on some platforms
     await Permission.bluetoothScan.request();
     await Permission.bluetoothConnect.request();
   }
@@ -347,7 +356,10 @@ class BleManager extends ChangeNotifier {
 
         _hrSub =
             _ble.subscribeToCharacteristic(hrChar).listen((data) {
-          if (data.length > 1) opt.setHr(data[1].toDouble());
+          if (data.length > 1) {
+            // Standard HR profile: second byte usually HR value (uint8)
+            opt.setHr(data[1].toDouble());
+          }
         });
       } else if (event.connectionState ==
           DeviceConnectionState.disconnected) {
@@ -372,7 +384,7 @@ class BleManager extends ChangeNotifier {
 }
 
 // ============================================================
-// UI — HR-ONLY DASHBOARD + SIMPLE HR GRAPH
+// UI — HR-ONLY DASHBOARD + SENSITIVITY + HR GRAPH
 // ============================================================
 
 class OptimiserDashboard extends StatelessWidget {
@@ -410,9 +422,38 @@ class OptimiserDashboard extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 15),
+          const SizedBox(height: 10),
           Text("HR: ${opt.hr.toStringAsFixed(0)} bpm"),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
+
+          // Sensitivity dropdown 1–5 bpm
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  "Sensitivity: ",
+                  style: TextStyle(fontSize: 16),
+                ),
+                DropdownButton<double>(
+                  value: opt.sensitivity,
+                  items: const [
+                    DropdownMenuItem(value: 1.0, child: Text("1 bpm")),
+                    DropdownMenuItem(value: 2.0, child: Text("2 bpm")),
+                    DropdownMenuItem(value: 3.0, child: Text("3 bpm")),
+                    DropdownMenuItem(value: 4.0, child: Text("4 bpm")),
+                    DropdownMenuItem(value: 5.0, child: Text("5 bpm")),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) opt.setSensitivity(v);
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
           SizedBox(
             height: 200,
             child: HrGraph(opt: opt),
@@ -455,7 +496,7 @@ class OptimiserDashboard extends StatelessWidget {
 }
 
 // ============================================================
-// BLE SHEET (unchanged)
+// BLE SHEET
 // ============================================================
 
 class _BleBottomSheet extends StatefulWidget {
