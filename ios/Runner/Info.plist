@@ -1,78 +1,63 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 
-    <!-- App Identity -->
-    <key>CFBundleName</key>
-    <string>PhysiologicalOptimiser</string>
+	<!-- App Identity -->
+	<key>CFBundleName</key>
+	<string>PhysiologicalOptimiser</string>
 
-    <key>CFBundleDisplayName</key>
-    <string>Physiological Optimiser</string>
+	<key>CFBundleDisplayName</key>
+	<string>PhysiologicalOptimiser</string>
 
-    <key>CFBundleIdentifier</key>
-    <string>com.yourcompany.physiologicaloptimiser</string>
+	<key>CFBundleIdentifier</key>
+	<string>PhysiologicalOptimiser</string>
 
-    <key>CFBundleExecutable</key>
-    <string>Runner</string>
+	<key>CFBundleExecutable</key>
+	<string>Runner</string>
 
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
 
-    <key>CFBundleVersion</key>
-    <string>63</string>
+	<key>CFBundleVersion</key>
+	<string>64</string>
 
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
 
-    <!-- Launch Screens -->
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
+	<!-- Launch Screen -->
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 
-    <!-- Supported orientations -->
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
+	<!-- Orientations -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 
+	<!-- Background Modes -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>audio</string>
+	</array>
 
-    <!-- ========================================================= -->
-    <!-- BACKGROUND MODES (ESSENTIAL FOR HR + AUDIO SIGNALS)       -->
-    <!-- ========================================================= -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>bluetooth-central</string>  <!-- Keeps app alive due to HR strap -->
-        <string>audio</string>              <!-- Allows audio beeps behind Strava -->
-    </array>
+	<!-- Bluetooth Permissions -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
 
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Bluetooth is required to read heart rate data for adaptive training.</string>
 
-    <!-- ========================================================= -->
-    <!-- BLUETOOTH PERMISSIONS                                     -->
-    <!-- ========================================================= -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
+	<!-- Microphone Permission (not needed for now but harmless) -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Required to enable audio signals during training sessions.</string>
 
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Bluetooth is required to read heart rate data for adaptive training.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Allows playback of short audio cues for training optimisation.</string>
 
-
-    <!-- ========================================================= -->
-    <!-- MICROPHONE/AUDIO PERMISSIONS                              -->
-    <!-- REQUIRED for iOS to allow background audio playback       -->
-    <!-- Even if the microphone is not used!                       -->
-    <!-- ========================================================= -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Required to enable audio signals during training sessions.</string>
-
-    <key>NSAppleMusicUsageDescription</key>
-    <string>Allows playback of short audio cues for training optimisation.</string>
-
-
-    <!-- ========================================================= -->
-    <!-- HAPTICS PERMISSION                                         -->
-    <!-- ========================================================= -->
-    <key>NSHapt
+</dict>
+</plist>
