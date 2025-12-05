@@ -20,7 +20,7 @@
 	<string>1.0.0</string>
 
 	<key>CFBundleVersion</key>
-	<string>66</string>
+	<string>64</string>
 
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -29,7 +29,7 @@
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 
-	<!-- REQUIRED FOR FLUTTER TO RENDER (otherwise BLACK SCREEN) -->
+	<!-- REQUIRED FOR FLUTTER TO DISPLAY UI -->
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -50,7 +50,7 @@
 		</dict>
 	</dict>
 
-	<!-- Orientations -->
+	<!-- Supported Orientations -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
@@ -73,12 +73,16 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Bluetooth is required to read heart rate data for adaptive training.</string>
 
-	<!-- Microphone Permission -->
+	<!-- Audio / Microphone (harmless but allowed) -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Required to enable audio signals during training sessions.</string>
 
 	<key>NSAppleMusicUsageDescription</key>
 	<string>Allows playback of short audio cues for training optimisation.</string>
+
+	<!-- Skips Export Compliance Review -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 
 </dict>
 </plist>
