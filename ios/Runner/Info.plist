@@ -2,32 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-
     <!-- App Identity -->
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
-
     <key>CFBundleDisplayName</key>
-    <string>PhysiologicalOptimiser</string>
-
-    <!-- REMOVE CFBundleIdentifier – Flutter/Xcode sets this automatically -->
-
+    <string>Physiological Optimiser</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.yourcompany.physiologicaloptimiser</string>
     <key>CFBundleExecutable</key>
     <string>Runner</string>
-
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
-
     <key>CFBundleVersion</key>
-    <string>70</string>
-
+    <string>71</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
+    <!-- Launch Screens -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Orientations -->
+    <!-- Supported orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -36,29 +31,35 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Background modes -->
+    <!-- ========================================================= -->
+    <!-- BACKGROUND MODES (ESSENTIAL FOR HR + AUDIO SIGNALS) -->
+    <!-- ========================================================= -->
     <key>UIBackgroundModes</key>
     <array>
-        <string>bluetooth-central</string>
-        <string>audio</string>
+        <string>bluetooth-central</string> <!-- Keeps app alive due to HR strap -->
+        <string>audio</string> <!-- Allows audio beeps behind Strava -->
     </array>
 
-    <!-- Permissions -->
+    <!-- ========================================================= -->
+    <!-- BLUETOOTH PERMISSIONS -->
+    <!-- ========================================================= -->
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
-
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>Bluetooth is required to read heart rate data for adaptive training.</string>
 
+    <!-- ========================================================= -->
+    <!-- MICROPHONE/AUDIO PERMISSIONS -->
+    <!-- ========================================================= -->
     <key>NSMicrophoneUsageDescription</key>
     <string>Required to enable audio signals during training sessions.</string>
-
     <key>NSAppleMusicUsageDescription</key>
     <string>Allows playback of short audio cues for training optimisation.</string>
 
-    <!-- Export compliance -->
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
-
+    <!-- ========================================================= -->
+    <!-- HAPTICS PERMISSION -->
+    <!-- ========================================================= -->
+    <key>NSHapticsUsageDescription</key>
+    <string>Allows the app to provide haptic feedback during training sessions for enhanced guidance.</string>
 </dict>
 </plist>
