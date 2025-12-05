@@ -12,7 +12,7 @@
     <string>Physiological Optimiser</string>
 
     <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <string>com.yourcompany.physiologicaloptimiser</string>
 
     <key>CFBundleExecutable</key>
     <string>Runner</string>
@@ -21,12 +21,12 @@
     <string>1.0.0</string>
 
     <key>CFBundleVersion</key>
-    <string>61</string>
+    <string>62</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
-    <!-- Launch Screen -->
+    <!-- Launch Screens -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
@@ -39,34 +39,40 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Background modes -->
+
+    <!-- ========================================================= -->
+    <!-- BACKGROUND MODES (ESSENTIAL FOR HR + AUDIO SIGNALS)       -->
+    <!-- ========================================================= -->
     <key>UIBackgroundModes</key>
     <array>
-        <string>bluetooth-central</string>
-        <string>audio</string>
+        <string>bluetooth-central</string>  <!-- Keeps app alive due to HR strap -->
+        <string>audio</string>              <!-- Allows audio beeps behind Strava -->
     </array>
 
-    <!-- Bluetooth Permissions -->
+
+    <!-- ========================================================= -->
+    <!-- BLUETOOTH PERMISSIONS                                     -->
+    <!-- ========================================================= -->
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
 
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>Bluetooth is required to read heart rate data for adaptive training.</string>
 
-    <!-- Audio Permissions -->
+
+    <!-- ========================================================= -->
+    <!-- MICROPHONE/AUDIO PERMISSIONS                              -->
+    <!-- REQUIRED for iOS to allow background audio playback       -->
+    <!-- Even if the microphone is not used!                       -->
+    <!-- ========================================================= -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Required for enabling audio cues during training.</string>
+    <string>Required to enable audio signals during training sessions.</string>
 
     <key>NSAppleMusicUsageDescription</key>
-    <string>Allows playback of short training audio cues.</string>
+    <string>Allows playback of short audio cues for training optimisation.</string>
 
-    <!-- Haptics Permission -->
-    <key>NSHapticsUsageDescription</key>
-    <string>Allows the app to provide haptic rhythm cues.</string>
 
-    <!-- Encryption -->
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
-
-</dict>
-</plist>
+    <!-- ========================================================= -->
+    <!-- HAPTICS PERMISSION                                         -->
+    <!-- ========================================================= -->
+    <key>NSHapt
