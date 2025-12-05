@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -40,43 +39,37 @@ class MyApp extends StatelessWidget {
 }
 
 // ============================================================
-// OPTIMISER STATE – REAL-TIME HAPTIC GRADIENT ASCENT
+// HR-ONLY OPTIMISER — PURE GRADIENT ASCENT
 // ============================================================
 
 class OptimiserState extends ChangeNotifier {
   // ---------- Core state ----------
   double hr = 0;
-  double velocity = 0; // km/h (smoothed)
-  double efficiency = 0; // km/h per bpm
   bool recording = false;
 
-  // Short-term in-memory samples for the live graph only
-  final List<Map<String, dynamic>> recentEff = [];
+  // HR history for graph (last ~60 seconds)
+  final List<double> hrHistory = [];
 
-  // Smoothed velocity internals
-  double _smoothVelocity = 0;
-  static const double _alpha = 0.15; // smoothing factor for velocity
+  void _addHrToHistory(double bpm) {
+    hrHistory.add(bpm);
+    if (hrHistory.length > 60) hrHistory.removeAt(0);
+  }
 
-  // ---------- Gradient-ascent loop ----------
+  // ---------- Gradient loop ----------
   Timer? _loopTimer;
 
-  // Test timing
   DateTime? _lastTestTime;
   bool _testInProgress = false;
   DateTime? _testStartTime;
   String? _testDirection; // "up" or "down"
 
-  // Snapshot before test
-  double? _effBeforeTest;
   double? _hrBeforeTest;
-  double? _velBeforeTest;
 
   // Plateau state
   bool _plateau = false;
   double? _plateauHr;
-  double? _plateauVel;
 
-  // Simple reinforcement stats
+  // Learning stats
   double _avgUpDelta = 0.0;
   double _avgDownDelta = 0.0;
   int _upCount = 0;
@@ -91,27 +84,24 @@ class OptimiserState extends ChangeNotifier {
 
     if (recording) {
       _startLoop();
-      _resetGradientState();
+      _resetState();
       _currentAdvice = "Learning rhythm...";
     } else {
       _stopLoop();
       _currentAdvice = "Tap ▶ to start workout";
     }
-
     notifyListeners();
   }
 
-  void _resetGradientState() {
+  void _resetState() {
     _plateau = false;
     _plateauHr = null;
-    _plateauVel = null;
     _lastTestTime = null;
     _testInProgress = false;
     _testStartTime = null;
     _testDirection = null;
-    _effBeforeTest = null;
     _hrBeforeTest = null;
-    _velBeforeTest = null;
+
     _avgUpDelta = 0.0;
     _avgDownDelta = 0.0;
     _upCount = 0;
@@ -121,7 +111,7 @@ class OptimiserState extends ChangeNotifier {
   void _startLoop() {
     _loopTimer?.cancel();
     _loopTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _tickGradient();
+      _tick();
     });
   }
 
@@ -130,97 +120,69 @@ class OptimiserState extends ChangeNotifier {
     _loopTimer = null;
   }
 
-  // ---------- Inputs from sensors ----------
-
+  // ---------- HR input from BLE ----------
   void setHr(double bpm) {
     if (bpm <= 0 || bpm.isNaN) return;
     hr = bpm;
-    _updateEfficiency();
-  }
-
-  void setVelocity(double mps) {
-    double v = mps * 3.6;
-
-    if (v.isNaN || v.isInfinite || v < 0) return;
-
-    if (v > 25) {
-      _updateEfficiency();
-      return;
-    }
-
-    if (_smoothVelocity == 0) {
-      _smoothVelocity = v;
-    } else {
-      _smoothVelocity = (_alpha * v) + ((1 - _alpha) * _smoothVelocity);
-    }
-
-    velocity = _smoothVelocity;
-    _updateEfficiency();
-  }
-
-  void _updateEfficiency() {
-    if (!recording || hr <= 0 || velocity <= 0) return;
-
-    efficiency = velocity / hr;
-
-    recentEff.add({
-      "eff": efficiency,
-      "vel": velocity,
-      "time": DateTime.now(),
-    });
-    if (recentEff.length > 60) recentEff.removeAt(0);
-
+    _addHrToHistory(bpm);
     notifyListeners();
   }
 
-  // ---------- Gradient-ascent control loop ----------
+  // ============================================================
+  // HR-ONLY GRADIENT LOOP
+  // ============================================================
 
-  void _tickGradient() {
-    if (!recording || hr <= 0 || velocity <= 0 || efficiency <= 0) return;
+  void _tick() {
+    if (!recording || hr <= 0) return;
 
     final now = DateTime.now();
-    const int testIntervalSec = 15;
-    const int evalDelaySec = 15;
+    const int testInterval = 15; // seconds between tests
+    const int evalDelay = 15;    // seconds to wait after cue
 
+    // If currently testing, wait for evaluation window
     if (_testInProgress) {
       if (_testStartTime != null &&
-          now.difference(_testStartTime!).inSeconds >= evalDelaySec) {
+          now.difference(_testStartTime!).inSeconds >= evalDelay) {
         _evaluateTest();
       }
       return;
     }
 
+    // Minimum interval between tests
     if (_lastTestTime != null &&
-        now.difference(_lastTestTime!).inSeconds < testIntervalSec) {
+        now.difference(_lastTestTime!).inSeconds < testInterval) {
       return;
     }
 
-    if (_plateau && _plateauHr != null && _plateauVel != null) {
+    // Plateau check — HR-only
+    if (_plateau && _plateauHr != null) {
       final hrDiff = (hr - _plateauHr!).abs();
-      final velDiff = (velocity - _plateauVel!).abs();
-      if (hrDiff < 3.0 && velDiff < 1.0) {
+      if (hrDiff < 1.5) {
         _currentAdvice = "Optimal rhythm";
+        notifyListeners();
         return;
       } else {
         _plateau = false;
       }
     }
 
+    // Decide direction
     String dir;
-    const double deltaEps = 0.0003;
+    const double deltaEps = 0.2; // small HR delta threshold
 
     if (_upCount + _downCount < 2) {
-      if (_testDirection == "up") {
-        dir = "down";
-      } else {
-        dir = "up";
-      }
+      // Early exploration: alternate up/down
+      dir = (_testDirection == "up") ? "down" : "up";
     } else {
-      if (_avgUpDelta > _avgDownDelta + deltaEps) {
+      // We have some stats
+      if (_avgUpDelta < _avgDownDelta - deltaEps) {
+        // Increasing rhythm tends to LOWER HR (negative delta better)
         dir = "up";
-      } else if (_avgDownDelta > _avgUpDelta + deltaEps) {
+      } else if (_avgDownDelta < _avgUpDelta - deltaEps) {
+        // Decreasing rhythm tends to LOWER HR
         dir = "down";
       } else {
+        // Very similar → probe by flipping
         dir = (_testDirection == "up") ? "down" : "up";
       }
     }
@@ -234,9 +196,7 @@ class OptimiserState extends ChangeNotifier {
     _testStartTime = DateTime.now();
     _lastTestTime = _testStartTime;
 
-    _effBeforeTest = efficiency;
     _hrBeforeTest = hr;
-    _velBeforeTest = velocity;
 
     if (dir == "up") {
       _currentAdvice = "Increase rhythm";
@@ -252,55 +212,52 @@ class OptimiserState extends ChangeNotifier {
   void _evaluateTest() {
     _testInProgress = false;
 
-    if (_effBeforeTest == null || _hrBeforeTest == null) return;
+    if (_hrBeforeTest == null) return;
 
-    final effAfter = efficiency;
     final hrAfter = hr;
-    final effDelta = effAfter - _effBeforeTest!;
-    final hrDelta = hrAfter - _hrBeforeTest!;
+    final delta = hrAfter - _hrBeforeTest!;
+    const double plateauEps = 1.0;
 
-    const double effEps = 0.0003;
-    const double plateauHrEps = 1.0;
-
-    if (effDelta.abs() < effEps && hrDelta.abs() < plateauHrEps) {
+    // Plateau check — minimal HR response
+    if (delta.abs() < plateauEps) {
       _plateau = true;
       _plateauHr = hrAfter;
-      _plateauVel = velocity;
       _currentAdvice = "Optimal rhythm";
       notifyListeners();
       return;
     }
 
+    // Update stats
     if (_testDirection == "up") {
       _upCount++;
-      _avgUpDelta = ((_avgUpDelta * (_upCount - 1)) + effDelta) / _upCount;
-    } else if (_testDirection == "down") {
+      _avgUpDelta = ((_avgUpDelta * (_upCount - 1)) + delta) / _upCount;
+    } else {
       _downCount++;
       _avgDownDelta =
-          ((_avgDownDelta * (_downCount - 1)) + effDelta) / _downCount;
+          ((_avgDownDelta * (_downCount - 1)) + delta) / _downCount;
     }
 
     notifyListeners();
   }
 
   // ============================================================
-  // FIXED HAPTICS — Now works correctly on iOS + Android
+  // HAPTICS — CLEARLY DISTINCT
   // ============================================================
 
   void _vibrateUp() async {
     final hasVibrator = await Vibration.hasVibrator() ?? false;
     if (!hasVibrator) return;
 
-    Vibration.vibrate(duration: 120);
-    await Future.delayed(const Duration(milliseconds: 160));
-    Vibration.vibrate(duration: 120);
+    // 3-second continuous vibration for UP
+    Vibration.vibrate(duration: 3000);
   }
 
   void _vibrateDown() async {
     final hasVibrator = await Vibration.hasVibrator() ?? false;
     if (!hasVibrator) return;
 
-    Vibration.vibrate(duration: 120);
+    // Short single buzz for DOWN
+    Vibration.vibrate(duration: 150);
   }
 
   // ---------- Public getters ----------
@@ -319,7 +276,7 @@ class OptimiserState extends ChangeNotifier {
 }
 
 // ============================================================
-// BLE MANAGER (unchanged)
+// BLE MANAGER (unchanged from working version)
 // ============================================================
 
 class BleManager extends ChangeNotifier {
@@ -415,85 +372,11 @@ class BleManager extends ChangeNotifier {
 }
 
 // ============================================================
-// DASHBOARD UI (unchanged)
+// UI — HR-ONLY DASHBOARD + SIMPLE HR GRAPH
 // ============================================================
 
-class OptimiserDashboard extends StatefulWidget {
+class OptimiserDashboard extends StatelessWidget {
   const OptimiserDashboard({super.key});
-  @override
-  State<OptimiserDashboard> createState() =>
-      _OptimiserDashboardState();
-}
-
-class _OptimiserDashboardState extends State<OptimiserDashboard> {
-  Position? _lastPosition;
-  StreamSubscription<Position>? _posSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _initPermissions();
-    _startGPS();
-  }
-
-  Future<void> _initPermissions() async {
-    await Geolocator.requestPermission();
-    await Permission.locationWhenInUse.request();
-    await Permission.bluetoothScan.request();
-    await Permission.bluetoothConnect.request();
-  }
-
-  void _startGPS() {
-    _posSub?.cancel();
-    _posSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 1,
-      ),
-    ).listen((pos) {
-      final opt = context.read<OptimiserState>();
-
-      if (_lastPosition != null &&
-          pos.timestamp != null &&
-          _lastPosition!.timestamp != null) {
-        final dt = pos.timestamp!
-                .difference(_lastPosition!.timestamp!)
-                .inMilliseconds /
-            1000.0;
-
-        if (dt >= 0.5 && dt <= 5) {
-          final dist = Geolocator.distanceBetween(
-            _lastPosition!.latitude,
-            _lastPosition!.longitude,
-            pos.latitude,
-            pos.longitude,
-          );
-
-          if (dist <= 20) {
-            final v = dist / dt;
-            opt.setVelocity(v);
-          }
-        }
-      }
-
-      _lastPosition = pos;
-    });
-  }
-
-  Future<void> _showBleSheet() async {
-    final ble = context.read<BleManager>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return ChangeNotifierProvider.value(
-          value: ble,
-          child: const _BleBottomSheet(),
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -511,7 +394,7 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
           tooltip: ble.connectedName == null
               ? 'Bluetooth devices'
               : 'Connected: ${ble.connectedName}',
-          onPressed: _showBleSheet,
+          onPressed: () => _showBleSheet(context),
         ),
         title: const Text("Physiological Optimiser"),
       ),
@@ -527,36 +410,47 @@ class _OptimiserDashboardState extends State<OptimiserDashboard> {
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 15),
           Text("HR: ${opt.hr.toStringAsFixed(0)} bpm"),
-          Text("Velocity: ${opt.velocity.toStringAsFixed(2)} km/h"),
-          Text(
-              "Efficiency: ${opt.efficiency.toStringAsFixed(3)} km/h per bpm"),
           const SizedBox(height: 20),
-          SizedBox(height: 200, child: EfficiencyGraph(opt: opt)),
+          SizedBox(
+            height: 200,
+            child: HrGraph(opt: opt),
+          ),
           const SizedBox(height: 12),
           if (ble.connectedName != null)
             Text(
               "Connected to: ${ble.connectedName}",
               style: const TextStyle(
-                  fontSize: 12, color: Colors.black54),
+                fontSize: 12,
+                color: Colors.black54,
+              ),
             ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor:
             opt.recording ? Colors.red : Colors.green,
-        child: Icon(
-            opt.recording ? Icons.stop : Icons.play_arrow),
+        child:
+            Icon(opt.recording ? Icons.stop : Icons.play_arrow),
         onPressed: () => opt.toggleRecording(),
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _posSub?.cancel();
-    super.dispose();
+  void _showBleSheet(BuildContext context) {
+    final ble = context.read<BleManager>();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return ChangeNotifierProvider.value(
+          value: ble,
+          child: const _BleBottomSheet(),
+        );
+      },
+    );
   }
 }
 
@@ -606,7 +500,8 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
                       ? "Scanning for devices…"
                       : "Bluetooth devices",
                   style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w600),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600),
                 ),
                 const Spacer(),
                 if (ble.connectedId != null)
@@ -634,8 +529,9 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
                           const Divider(height: 1),
                       itemBuilder: (ctx, i) {
                         final d = devices[i];
-                        final name =
-                            d.name.isNotEmpty ? d.name : "(unknown)";
+                        final name = d.name.isNotEmpty
+                            ? d.name
+                            : "(unknown)";
                         return ListTile(
                           leading: const Icon(Icons.watch),
                           title: Text(name),
@@ -645,8 +541,10 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
                           onTap: () async {
                             final opt =
                                 context.read<OptimiserState>();
-                            await ble.connect(d.id, name, opt);
-                            if (ctx.mounted) Navigator.pop(ctx);
+                            await ble.connect(
+                                d.id, name, opt);
+                            if (ctx.mounted)
+                              Navigator.pop(ctx);
                           },
                         );
                       },
@@ -675,39 +573,52 @@ class _BleBottomSheetState extends State<_BleBottomSheet> {
 }
 
 // ============================================================
-// LIVE EFFICIENCY GRAPH
+// SIMPLE HR GRAPH (GREEN LINE, MINIMAL UI)
 // ============================================================
 
-class EfficiencyGraph extends StatelessWidget {
+class HrGraph extends StatelessWidget {
   final OptimiserState opt;
-  const EfficiencyGraph({super.key, required this.opt});
+  const HrGraph({super.key, required this.opt});
 
   @override
   Widget build(BuildContext context) {
-    final points = opt.recentEff
-        .asMap()
-        .entries
-        .map((e) =>
-            FlSpot(e.key.toDouble(), e.value["eff"] as double))
-        .toList();
+    final points = opt.hrHistory.asMap().entries.map((e) {
+      return FlSpot(e.key.toDouble(), e.value);
+    }).toList();
+
+    double minY = 40;
+    double maxY = 200;
+
+    if (points.isNotEmpty) {
+      final ys = points.map((p) => p.y).toList();
+      final localMin = ys.reduce((a, b) => a < b ? a : b);
+      final localMax = ys.reduce((a, b) => a > b ? a : b);
+      minY = (localMin - 5).clamp(30, 220);
+      maxY = (localMax + 5).clamp(40, 240);
+      if (minY >= maxY) {
+        maxY = minY + 10;
+      }
+    }
 
     return LineChart(
       LineChartData(
         minX: 0,
-        maxX:
-            points.isEmpty ? 1 : points.length.toDouble(),
-        minY: 0,
+        maxX: points.isEmpty ? 1 : points.length.toDouble(),
+        minY: minY,
+        maxY: maxY,
         lineBarsData: [
           LineChartBarData(
             spots: points,
             isCurved: true,
+            barWidth: 3,
+            color: Colors.green,
             dotData: FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: Colors.blue.withOpacity(0.2),
-            ),
+            belowBarData: BarAreaData(show: false),
           ),
         ],
+        titlesData: FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(show: false),
       ),
     );
   }

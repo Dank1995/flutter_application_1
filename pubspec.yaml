@@ -1,6 +1,6 @@
 name: physiological_optimiser
 description: Physiological Optimiser adaptive training app
-version: 1.0.0+53
+version: 1.0.0+56
 
 environment:
   sdk: ">=2.18.0 <3.0.0"
@@ -8,13 +8,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   provider: ^6.1.5
   fl_chart: ^0.69.0
-  path_provider: ^2.0.15
-  geolocator: ^10.1.0
   permission_handler: ^11.4.0
   flutter_reactive_ble: ^5.0.2
-  vibration: ^1.7.6   # <-- ADDED (for haptic feedback)
+  vibration: ^1.7.6
 
 dev_dependencies:
   flutter_test:
