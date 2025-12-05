@@ -14,15 +14,15 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
-    <string>72</string>
+    <string>73</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
-    <!-- Launch Screens -->
+    <!-- Launch Screen -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Supported orientations -->
+    <!-- Supported Orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
@@ -31,35 +31,18 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- ========================================================= -->
-    <!-- BACKGROUND MODES (ESSENTIAL FOR HR + AUDIO SIGNALS) -->
-    <!-- ========================================================= -->
+    <!-- Background Modes -->
     <key>UIBackgroundModes</key>
     <array>
-        <string>bluetooth-central</string> <!-- Keeps app alive due to HR strap -->
-        <string>audio</string> <!-- Allows audio beeps behind Strava -->
+        <string>bluetooth-central</string>
+        <string>audio</string>
     </array>
 
-    <!-- ========================================================= -->
-    <!-- BLUETOOTH PERMISSIONS -->
-    <!-- ========================================================= -->
+    <!-- Bluetooth Permissions -->
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to your Bluetooth heart rate strap for real-time physiological optimisation.</string>
+    <string>This app connects to your Bluetooth heart rate strap for real-time optimisation.</string>
+
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Bluetooth is required to read heart rate data for adaptive training.</string>
-
-    <!-- ========================================================= -->
-    <!-- MICROPHONE/AUDIO PERMISSIONS -->
-    <!-- ========================================================= -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Required to enable audio signals during training sessions.</string>
-    <key>NSAppleMusicUsageDescription</key>
-    <string>Allows playback of short audio cues for training optimisation.</string>
-
-    <!-- ========================================================= -->
-    <!-- HAPTICS PERMISSION -->
-    <!-- ========================================================= -->
-    <key>NSHapticsUsageDescription</key>
-    <string>Allows the app to provide haptic feedback during training sessions for enhanced guidance.</string>
+    <string>Used to read heart rate data from your BLE sensor.</string>
 </dict>
 </plist>
