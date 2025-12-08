@@ -21,7 +21,7 @@
 
     <!-- Build Number -->
     <key>CFBundleVersion</key>
-    <string>75</string>
+    <string>76</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
@@ -69,13 +69,17 @@
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Location is used to track motion continuously during activities.</string>
 
-    <!-- Flutter Requirement -->
+    <!-- Required for Flutter -->
     <key>io.flutter.embedded_views_preview</key>
     <true/>
 
     <!-- BLE Restoration (iOS 17+) -->
     <key>CBPeripheralManagerOptionRestoreIdentifierKey</key>
     <string>physopt_ble_restore</string>
+
+    <!-- Encryption Export Compliance -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
 
 </dict>
 </plist>
