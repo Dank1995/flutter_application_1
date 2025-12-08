@@ -1,6 +1,6 @@
 name: itknows
 description: A real-time adaptive metabolic and physiological optimisation app.
-version: 1.0.0+2
+version: 1.0.0+87
 
 environment:
   sdk: ">=2.18.0 <3.0.0"
