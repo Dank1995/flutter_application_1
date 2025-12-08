@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 
-    <!-- App Identity -->
     <key>CFBundleName</key>
-    <string>PhysiologicalOptimiser</string>
+    <string>Physiological Optimiser</string>
 
     <key>CFBundleDisplayName</key>
     <string>Physiological Optimiser</string>
@@ -13,71 +13,39 @@
     <key>CFBundleIdentifier</key>
     <string>PhysiologicalOptimiser</string>
 
-    <key>CFBundleExecutable</key>
-    <string>Runner</string>
+    <key>CFBundleVersion</key>
+    <string>80</string>
 
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
 
-    <!-- Build Number -->
-    <key>CFBundleVersion</key>
-    <string>78</string>
-
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-
-    <!-- Launch Screen -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Supported Orientations -->
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- iPad orientations -->
-    <key>UISupportedInterfaceOrientations~ipad</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationPortraitUpsideDown</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
+    <!-- Bluetooth permissions (REQUIRED for your optimiser) -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app uses Bluetooth to connect to workout sensors.</string>
 
-    <!-- Background Modes -->
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>This app requires Bluetooth access to optimise rhythm.</string>
+
+    <!-- Allow BLE operations in background -->
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>
-        <string>audio</string>
     </array>
 
-    <!-- Bluetooth Permissions -->
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to external fitness sensors such as footpods, pedals, HR monitors, and power meters.</string>
-
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>This app communicates with BLE devices to optimise your physiological performance.</string>
-
-    <!-- Location Permissions -->
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Location is used to obtain accurate speed, distance and sensor behaviour outdoors.</string>
-
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Location is used to track motion continuously during activities.</string>
-
-    <!-- Required for Flutter -->
-    <key>io.flutter.embedded_views_preview</key>
-    <true/>
-
-    <!-- BLE Restoration (iOS 17+) -->
-    <key>CBPeripheralManagerOptionRestoreIdentifierKey</key>
-    <string>physopt_ble_restore</string>
-
-    <!-- Encryption Export Compliance -->
+    <!-- Export compliance: no custom encryption -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
 
