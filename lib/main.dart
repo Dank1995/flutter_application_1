@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:vibration/vibration.dart';
-import 'package:audioplayers/audioplayers.dart';
 
 // ------------------------------------------------------------
 // Entry point
@@ -46,91 +43,13 @@ class MyApp extends StatelessWidget {
 }
 
 // ============================================================
-// FEEDBACK MODES
+// FEEDBACK MODE — now only HAPTIC
 // ============================================================
 
-enum FeedbackMode { haptic, voice } // "voice" now = tonal beeps
+enum FeedbackMode { haptic }
 
 // ============================================================
-// SIMPLE PROCEDURAL TONE GENERATOR
-// ============================================================
-
-class ToneGenerator {
-  static Uint8List generateSineWave({
-    required double frequency,
-    int sampleRate = 44100,
-    int durationMs = 150,
-    double volume = 0.8,
-  }) {
-    final int sampleCount =
-        ((sampleRate * durationMs) / 1000).round();
-    final bytes = BytesBuilder();
-
-    // WAV header
-    const int channels = 1;
-    const int bitsPerSample = 16;
-    final int byteRate =
-        sampleRate * channels * bitsPerSample ~/ 8;
-    final int blockAlign = channels * bitsPerSample ~/ 8;
-    final int dataSize =
-        sampleCount * channels * bitsPerSample ~/ 8;
-    final int fileSize = 36 + dataSize;
-
-    void writeString(String s) {
-      bytes.add(s.codeUnits);
-    }
-
-    void writeInt32(int value) {
-      bytes.add([
-        value & 0xFF,
-        (value >> 8) & 0xFF,
-        (value >> 16) & 0xFF,
-        (value >> 24) & 0xFF,
-      ]);
-    }
-
-    void writeInt16(int value) {
-      bytes.add([
-        value & 0xFF,
-        (value >> 8) & 0xFF,
-      ]);
-    }
-
-    // RIFF header
-    writeString('RIFF');
-    writeInt32(fileSize);
-    writeString('WAVE');
-
-    // fmt chunk
-    writeString('fmt ');
-    writeInt32(16); // PCM header size
-    writeInt16(1); // audio format PCM
-    writeInt16(channels);
-    writeInt32(sampleRate);
-    writeInt32(byteRate);
-    writeInt16(blockAlign);
-    writeInt16(bitsPerSample);
-
-    // data chunk
-    writeString('data');
-    writeInt32(dataSize);
-
-    // Samples
-    final double twoPiF = 2 * math.pi * frequency;
-    for (int i = 0; i < sampleCount; i++) {
-      final t = i / sampleRate;
-      final sample = math.sin(twoPiF * t);
-      final intVal =
-          (sample * 32767.0 * volume).round().clamp(-32768, 32767);
-      writeInt16(intVal);
-    }
-
-    return bytes.toBytes();
-  }
-}
-
-// ============================================================
-// HR-ONLY OPTIMISER — WITH HAPTIC / TONE FEEDBACK
+// HR-ONLY OPTIMISER — HAPTICS ONLY (NO AUDIO)
 // ============================================================
 
 class OptimiserState extends ChangeNotifier {
@@ -153,60 +72,45 @@ class OptimiserState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------- Feedback mode ----------
+  // ---------- Feedback mode (haptic only now) ----------
   FeedbackMode feedbackMode = FeedbackMode.haptic;
   void setFeedbackMode(FeedbackMode m) {
     feedbackMode = m;
     notifyListeners();
   }
 
-  // ---------- Procedural audio via audioplayers ----------
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  // ============================================================
+  // PURE HAPTIC SIGNALS (SAFE FOR iOS)
+  // ============================================================
 
-  Future<void> _playTone(double frequency,
-      {int durationMs = 150}) async {
-    try {
-      final bytes = ToneGenerator.generateSineWave(
-        frequency: frequency,
-        durationMs: durationMs,
-        volume: 0.9,
-      );
-      await _audioPlayer.play(BytesSource(bytes));
-    } catch (_) {
-      // Fail silently if audio can't play
-    }
-  }
-
-  Future<void> _toneUp() async {
-    // Two short high beeps (C1 style)
-    await _playTone(900, durationMs: 120);
-    await Future.delayed(const Duration(milliseconds: 100));
-    await _playTone(900, durationMs: 120);
-  }
-
-  Future<void> _toneDown() async {
-    // Single lower beep
-    await _playTone(600, durationMs: 140);
-  }
-
-  // ---------- Combined signalling ----------
   void _signalUp() {
-    if (feedbackMode == FeedbackMode.haptic) {
-      _vibrateUp();
-    } else {
-      _toneUp();
-    }
+    _vibrateShort(); // Increase = short buzz
   }
 
   void _signalDown() {
-    if (feedbackMode == FeedbackMode.haptic) {
-      _vibrateDown();
-    } else {
-      _toneDown();
-    }
+    _vibrateLong(); // Decrease = long buzz
   }
 
-  // ---------- Gradient loop ----------
+  void _vibrateShort() async {
+    final ok = await Vibration.hasVibrator() ?? false;
+    if (!ok) return;
+
+    // Sharp 150 ms buzz
+    Vibration.vibrate(duration: 150, intensities: [255]);
+  }
+
+  void _vibrateLong() async {
+    final ok = await Vibration.hasVibrator() ?? false;
+    if (!ok) return;
+
+    // Long continuous buzz — iOS NEVER merges this
+    Vibration.vibrate(duration: 800, intensities: [255]);
+  }
+
+  // ============================================================
+  // Gradient loop
+  // ============================================================
+
   Timer? _loopTimer;
 
   DateTime? _lastTestTime;
@@ -237,7 +141,6 @@ class OptimiserState extends ChangeNotifier {
     } else {
       _stopLoop();
       _advice = "Tap ▶ to start workout";
-      // no audio stop needed; tones are very short
     }
     notifyListeners();
   }
@@ -377,31 +280,11 @@ class OptimiserState extends ChangeNotifier {
   }
 
   // ============================================================
-  // HAPTICS
-  // ============================================================
-  void _vibrateUp() async {
-    final hasVib = await Vibration.hasVibrator() ?? false;
-    if (!hasVib) return;
-
-    // More noticeable pattern
-    Vibration.vibrate(
-      pattern: [0, 250, 150, 250],
-      intensities: [128, 255, 255, 255],
-    );
-  }
-
-  void _vibrateDown() async {
-    final hasVib = await Vibration.hasVibrator() ?? false;
-    if (!hasVib) return;
-
-    Vibration.vibrate(duration: 150);
-  }
-
-  // ============================================================
   // Public getters
   // ============================================================
 
-  String get rhythmAdvice => recording ? _advice : "Tap ▶ to start workout";
+  String get rhythmAdvice =>
+      recording ? _advice : "Tap ▶ to start workout";
 
   Color get rhythmColor {
     if (!recording) return Colors.grey;
@@ -578,7 +461,7 @@ class OptimiserDashboard extends StatelessWidget {
             ],
           ),
 
-          // Feedback mode selector
+          // Feedback selector (single option now)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -589,10 +472,6 @@ class OptimiserDashboard extends StatelessWidget {
                   DropdownMenuItem(
                     value: FeedbackMode.haptic,
                     child: Text("Haptic"),
-                  ),
-                  DropdownMenuItem(
-                    value: FeedbackMode.voice,
-                    child: Text("Tone"),
                   ),
                 ],
                 onChanged: (v) {

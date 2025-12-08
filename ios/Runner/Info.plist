@@ -21,7 +21,7 @@
 
     <!-- Build Number -->
     <key>CFBundleVersion</key>
-    <string>77</string>
+    <string>78</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
