@@ -2,19 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+
     <!-- App Identity -->
     <key>CFBundleName</key>
     <string>PhysiologicalOptimiser</string>
+
     <key>CFBundleDisplayName</key>
     <string>Physiological Optimiser</string>
+
     <key>CFBundleIdentifier</key>
-    <string>com.yourcompany.physiologicaloptimiser</string>
+    <string>PhysiologicalOptimiser</string>
+
     <key>CFBundleExecutable</key>
     <string>Runner</string>
+
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
+
+    <!-- Build Number -->
     <key>CFBundleVersion</key>
-    <string>73</string>
+    <string>75</string>
+
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
@@ -31,6 +39,15 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
+    <!-- iPad orientations -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
     <!-- Background Modes -->
     <key>UIBackgroundModes</key>
     <array>
@@ -40,9 +57,25 @@
 
     <!-- Bluetooth Permissions -->
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>This app connects to your Bluetooth heart rate strap for real-time optimisation.</string>
+    <string>This app connects to external fitness sensors such as footpods, pedals, HR monitors, and power meters.</string>
 
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>Used to read heart rate data from your BLE sensor.</string>
+    <string>This app communicates with BLE devices to optimise your physiological performance.</string>
+
+    <!-- Location Permissions -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location is used to obtain accurate speed, distance and sensor behaviour outdoors.</string>
+
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Location is used to track motion continuously during activities.</string>
+
+    <!-- Flutter Requirement -->
+    <key>io.flutter.embedded_views_preview</key>
+    <true/>
+
+    <!-- BLE Restoration (iOS 17+) -->
+    <key>CBPeripheralManagerOptionRestoreIdentifierKey</key>
+    <string>physopt_ble_restore</string>
+
 </dict>
 </plist>

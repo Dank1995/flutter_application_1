@@ -1,6 +1,6 @@
 name: physiological_optimiser
-description: Physiological Optimiser adaptive training app
-version: 1.0.0+74
+description: A real-time adaptive physiological optimisation app for running, cycling and training.
+version: 1.0.0+75
 
 environment:
   sdk: ">=2.18.0 <3.0.0"
@@ -13,7 +13,7 @@ dependencies:
   flutter_reactive_ble: ^5.0.2
   permission_handler: ^11.4.0
   vibration: ^1.7.6
-  audioplayers: ^5.2.1 # Used for procedural tones only
+  audioplayers: ^5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -22,4 +22,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # No assets needed — procedural audio only
